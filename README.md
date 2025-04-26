@@ -2,7 +2,7 @@
 
 This repository contains two bash scripts:
 1.  `setup-rclone.sh`: Configures `rclone` specifically for Cloudflare R2 storage using environment variables. This script only needs to be run *once* initially or when your R2 configuration changes.
-2.  `backup.sh`: Performs an automated backup of a Bitwarden vault using the `bw` CLI, validates the export, compresses and encrypts it, uploads it to the configured R2 bucket using `rclone`, and prunes old backups from R2 based on a retention count.
+2.  `backup.sh`: Performs an automated backup of a Bitwarden vault using the `bw` CLI, validates the export, compresses and encrypts it, uploads it to the configured R2 bucket using `rclone`, prunes old backups from R2 based on a retention count, and optionally sends notifications via Apprise.
 
 ## Features
 
@@ -13,6 +13,7 @@ This repository contains two bash scripts:
 * Verification of the encryption by attempting decryption and checking for valid gzip format.
 * Uploads the encrypted backup to Cloudflare R2 storage using `rclone`.
 * Prunes old backups from the R2 bucket based on a configurable retention count.
+* **Optional Apprise notifications on success and failure.**
 * Robust error handling and logging.
 * Secure cleanup process that logs out of Bitwarden and unsets sensitive environment variables.
 
@@ -25,8 +26,9 @@ This repository contains two bash scripts:
 * `openssl` installed for encryption and decryption verification.
 * `rclone` installed for uploading to R2 and pruning.
 * Access to a Cloudflare R2 bucket and its necessary credentials (Endpoint, Access Key ID, Secret Access Key).
+* `apprise` installed (if using notifications).
 * A `.env` file containing all required environment variables (see Configuration section).
-* A suitable directory for storing temporary and final backup files before upload (default is `/backup`). The script requires write permissions to this directory.
+* A suitable directory for storing temporary and final backup files before upload (default is `/tmp/bw_backup`). The script requires write permissions to this directory.
 
 ## Setup
 
@@ -48,8 +50,8 @@ This repository contains two bash scripts:
     RCLONE_R2_ACCESS_KEY_ID="your_r2_access_key_id"
     RCLONE_R2_SECRET_ACCESS_KEY="your_r2_secret_access_key"
 
-    # Optional: Customize backup directory (default: /backup)
-    # BACKUP_DIR="/path/to/your/backup/storage"
+    # Optional: Customize backup directory (default: /tmp/bw_backup - temporary)
+    # BACKUP_DIR="/path/to/your/temporary/storage"
 
     # Optional: Customize minimum backup size check (default: 100000 bytes)
     # MIN_BACKUP_SIZE="200000"
@@ -59,33 +61,38 @@ This repository contains two bash scripts:
 
     # Optional: Customize R2 retention count (default: 240 backups)
     # R2_RETENTION_COUNT="180"
+
+    # Optional: Apprise notification URLs (requires 'apprise' to be installed)
+    # Separate multiple URLs with spaces or newlines (e.g., 'mailto://user@example.com' 'tgram://token/chat_id')
+    # APPRISE_URLS="url1://target1 url2://target2"
     ```
-3.  **Run `setup-rclone.sh`**: This script reads the R2 variables from `.env` and creates/updates the `rclone.conf` file. This only needs to be done once.
+3.  **Run `setup-rclone.sh`**: This script reads the R2 variables from `.env` and creates/updates the `rclone.conf` file in a location like `/root/.config/rclone/rclone.conf` or `~/.config/rclone/rclone.conf` depending on where the script is run. This only needs to be done once or when your R2 configuration changes.
     ```bash
     ./setup-rclone.sh
     ```
-4.  **Ensure required dependencies are installed** (`bw`, `jq`, `gzip`, `openssl`, `rclone`).
+4.  **Ensure required dependencies are installed** (`bw`, `jq`, `gzip`, `openssl`, `rclone`, and `apprise` if using notifications). The `backup.sh` script will check for `apprise` only if `APPRISE_URLS` is set.
 5.  **Set appropriate permissions** for the scripts (e.g., `chmod +x setup-rclone.sh backup.sh`).
 
 ## Configuration (Environment Variables)
 
-The scripts rely on environment variables, typically loaded from the `.env` file by `setup-rclone.sh` and `backup.sh`.
+The scripts rely on environment variables, typically loaded from the `.env` file.
 
-| Variable                      | Script(s)                      | Description                                                                                                | Default   | Required |
-|:------------------------------|:-------------------------------|:-----------------------------------------------------------------------------------------------------------|:----------|:---------|
-| `BW_CLIENTID`                 | `backup.sh`                    | Your Bitwarden API Client ID.                                                                              | None      | Yes      |
-| `BW_CLIENTSECRET`             | `backup.sh`                    | Your Bitwarden API Client Secret.                                                                          | None      | Yes      |
-| `BW_PASSWORD`                 | `backup.sh`                    | Your Bitwarden Master Password. Used to unlock the vault.                                                  | None      | Yes      |
-| `ENCRYPTION_PASSWORD`         | `backup.sh`                    | A strong, unique password used to encrypt the compressed backup file. **CRITICAL: Do not lose this!**      | None      | Yes      |
-| `BACKUP_DIR`                  | `backup.sh`                    | The directory where the backup files will be stored before upload.                                         | `/backup` | No       |
-| `MIN_BACKUP_SIZE`             | `backup.sh`                    | Minimum expected size (in bytes) of the raw JSON backup file for validation.                               | `100000`  | No       |
-| `COMPRESSION_LEVEL`           | `backup.sh`                    | Gzip compression level (1-9). 9 is maximum compression.                                                    | `9`       | No       |
-| `RCLONE_R2_REMOTE_NAME`       | `setup-rclone.sh`, `backup.sh` | The name given to the R2 remote in the `rclone.conf` file. Must match in both scripts/env.                 | None      | Yes      |
-| `RCLONE_R2_BUCKET_NAME`       | `setup-rclone.sh`, `backup.sh` | The name of your Cloudflare R2 bucket.                                                                     | None      | Yes      |
-| `RCLONE_R2_ENDPOINT`          | `setup-rclone.sh`              | The S3 endpoint URL for your Cloudflare R2 bucket (e.g., `https://<account_id>.r2.cloudflarestorage.com`). | None      | Yes      |
-| `RCLONE_R2_ACCESS_KEY_ID`     | `setup-rclone.sh`              | Your Cloudflare R2 Access Key ID.                                                                          | None      | Yes      |
-| `RCLONE_R2_SECRET_ACCESS_KEY` | `setup-rclone.sh`              | Your Cloudflare R2 Secret Access Key.                                                                      | None      | Yes      |
-| `R2_RETENTION_COUNT`          | `backup.sh`                    | The number of the *most recent* backups to keep in the R2 bucket. Older backups will be pruned.            | `240`     | No       |
+| Variable                      | Script(s)                      | Description                                                                                                | Default          | Required |
+|:------------------------------|:-------------------------------|:-----------------------------------------------------------------------------------------------------------|:-----------------|:---------|
+| `BW_CLIENTID`                 | `backup.sh`                    | Your Bitwarden API Client ID.                                                                              | None             | Yes      |
+| `BW_CLIENTSECRET`             | `backup.sh`                    | Your Bitwarden API Client Secret.                                                                          | None             | Yes      |
+| `BW_PASSWORD`                 | `backup.sh`                    | Your Bitwarden Master Password. Used to unlock the vault.                                                  | None             | Yes      |
+| `ENCRYPTION_PASSWORD`         | `backup.sh`                    | A strong, unique password used to encrypt the compressed backup file. **CRITICAL: Do not lose this!**      | None             | Yes      |
+| `BACKUP_DIR`                  | `backup.sh`                    | The temporary directory where the backup files will be stored before upload. Cleans up on exit.            | `/tmp/bw_backup` | No       |
+| `MIN_BACKUP_SIZE`             | `backup.sh`                    | Minimum expected size (in bytes) of the raw JSON backup file for validation.                               | `100000`         | No       |
+| `COMPRESSION_LEVEL`           | `backup.sh`                    | Gzip compression level (1-9). 9 is maximum compression.                                                    | `9`              | No       |
+| `RCLONE_R2_REMOTE_NAME`       | `setup-rclone.sh`, `backup.sh` | The name given to the R2 remote in the `rclone.conf` file. Must match in both scripts/env.                 | None             | Yes      |
+| `RCLONE_R2_BUCKET_NAME`       | `setup-rclone.sh`, `backup.sh` | The name of your Cloudflare R2 bucket.                                                                     | None             | Yes      |
+| `RCLONE_R2_ENDPOINT`          | `setup-rclone.sh`              | The S3 endpoint URL for your Cloudflare R2 bucket (e.g., `https://<account_id>.r2.cloudflarestorage.com`). | None             | Yes      |
+| `RCLONE_R2_ACCESS_KEY_ID`     | `setup-rclone.sh`              | Your Cloudflare R2 Access Key ID.                                                                          | None             | Yes      |
+| `RCLONE_R2_SECRET_ACCESS_KEY` | `setup-rclone.sh`              | Your Cloudflare R2 Secret Access Key.                                                                      | None             | Yes      |
+| `R2_RETENTION_COUNT`          | `backup.sh`                    | The number of the *most recent* backups to keep in the R2 bucket. Older backups will be pruned.            | `240`            | No       |
+| `APPRISE_URLS`                | `backup.sh`                    | Apprise notification URLs (e.g., `tgram://token/chat_id`, `mailto://user@example.com`).                    | None             | No       |
 
 ## Usage Manual
 

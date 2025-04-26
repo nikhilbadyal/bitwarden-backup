@@ -16,7 +16,7 @@ readonly COMPRESSION_LEVEL="${COMPRESSION_LEVEL:-9}"  # Max gzip compression
 # File within the R2 bucket to store the hash of the last successful backup
 # This file will be downloaded and uploaded from the ephemeral server
 readonly R2_HASH_FILENAME=".last_bw_backup_hash.sha256"
-
+readonly APPRISE_URLS="${APPRISE_URLS:-}" # Allow empty, no notification if not set
 # Exit codes
 readonly EXIT_SUCCESS=0
 readonly EXIT_MISSING_VAR=1
@@ -42,7 +42,7 @@ TIMESTAMP=$(date "+%Y%m%d%H%M%S")
 RAW_FILE="${BACKUP_DIR}/bw_backup_${TIMESTAMP}.json"
 COMPRESSED_FILE="" # Will be set during compression/encryption
 export NODE_NO_DEPRECATION=1 # Suppress Node.js deprecation warnings from bw CLI
-
+changes_detected=false # Make this global so the trap can access it
 # --- Logging Function ---
 log() {
     local level=$1
@@ -110,6 +110,47 @@ cleanup() {
 
     log INFO "Cleanup complete."
 
+    # --- Send Final Apprise Notification ---
+    local final_message=""
+    local notify_level=""
+
+    if [ "$exit_code" -eq "$EXIT_SUCCESS" ]; then
+         # Use the global changes_detected variable
+         if [ "$changes_detected" = false ]; then
+             final_message="Bitwarden backup script completed successfully. No changes detected, no new backup uploaded."
+         else
+              # Use the global COMPRESSED_FILE variable
+              # Check if COMPRESSED_FILE is set before trying to get basename
+              if [ -n "$COMPRESSED_FILE" ] && [ -f "$COMPRESSED_FILE" ]; then
+                  final_message="Bitwarden backup script completed successfully. New backup uploaded: $(basename "$COMPRESSED_FILE")."
+              else
+                  final_message="Bitwarden backup script completed successfully. New backup was processed and uploaded." # Fallback message
+              fi
+         fi
+         notify_level="SUCCESS"
+    else
+        final_message="Bitwarden backup script failed with exit code $exit_code."
+        # Add more context for common failures
+        case "$exit_code" in
+            "$EXIT_MISSING_VAR") final_message+="\nReason: Missing environment variable. Check documentation." ;;
+            "$EXIT_MISSING_DEP") final_message+="\nReason: Missing dependencies. Check apprise, bw, jq, gzip, openssl, sha256sum, rclone." ;;
+            "$EXIT_LOGIN_FAILED") final_message+="\nReason: Bitwarden login failed. Check BW_CLIENTID/BW_CLIENTSECRET." ;;
+            "$EXIT_UNLOCK_FAILED") final_message+="\nReason: Bitwarden vault unlock failed. Check BW_PASSWORD." ;;
+            "$EXIT_EXPORT_FAILED") final_message+="\nReason: Bitwarden export failed. Check permissions or vault state." ;;
+            "$EXIT_INVALID_BACKUP") final_message+="\nReason: Exported backup file is empty, too small, or invalid JSON/gzip/encryption." ;;
+            "$EXIT_COMPRESS_FAILED") final_message+="\nReason: Compression or encryption failed. Check ENCRYPTION_PASSWORD." ;;
+            "$EXIT_BACKUP_DIR") final_message+="\nReason: Temporary backup directory could not be created or written to." ;;
+            *) final_message+="\nReason: An unexpected error occurred. Review logs." ;;
+        esac
+    # Add script log file location to error message if available (requires passing it or using another env var)
+    # Example: final_message+="\nLogs might be available at /path/to/log/file"
+         notify_level="ERROR"
+    fi
+
+    send_notification "$notify_level" "$final_message"
+    # --- End Apprise Notification ---
+
+
     # Re-exit with the original exit code
     exit "$exit_code"
 }
@@ -122,6 +163,13 @@ trap cleanup EXIT INT TERM
 check_dependencies() {
     log INFO "Checking for required dependencies..."
     local deps=("bw" "jq" "gzip" "openssl" "sha256sum" "rclone")
+
+    # Add apprise only if notification URLs are configured
+    if [ -n "$APPRISE_URLS" ]; then
+        deps+=("apprise")
+        log DEBUG "Apprise notifications configured, checking for 'apprise'."
+    fi
+
     local missing=()
 
     for dep in "${deps[@]}"; do
@@ -521,6 +569,60 @@ prune_old_backups_r2() {
     return 0
 }
 
+# --- Notification Function (requires 'apprise' command) ---
+# shellcheck disable=SC2317
+send_notification() {
+    local level="$1"
+    local message="$2"
+    local title="Bitwarden Backup Notification" # Default title
+
+    # Only send if APPRISE_URLS is set and not empty
+    if [ -z "$APPRISE_URLS" ]; then
+        log DEBUG "APPRISE_URLS not set. Skipping notification."
+        return 0 # Do nothing if no URLs are configured
+    fi
+
+    # Determine Apprise tag and title based on message level
+    case "$level" in
+        SUCCESS)
+            title="Bitwarden Backup SUCCESS"
+            ;;
+        WARN)
+            title="Bitwarden Backup WARNING"
+            ;;
+        ERROR)
+            title="Bitwarden Backup FAILURE"
+            ;;
+        INFO|DEBUG)
+            # Optionally send INFO/DEBUG if needed, default is just INFO/DEBUG logs
+            # If you want *all* logs sent, remove this return
+             log DEBUG "Skipping INFO/DEBUG notification level."
+             return 0
+            ;;
+        *)
+            title="Bitwarden Backup Notification" # Fallback title
+            ;;
+    esac
+
+    log DEBUG "Attempting to send $level notification via Apprise..."
+
+    # Use a loop to handle multiple URLs from the environment variable
+    # Assumes URLs are separated by space or newline
+    IFS=$'\n ' read -ra urls_array <<< "$APPRISE_URLS"
+    local apprise_exit_status=0
+
+    for url in "${urls_array[@]}"; do
+         if [ -n "$url" ]; then # Check if URL is not empty
+             if ! apprise -v -t "$title" -b "$message" "$url" >/dev/null 2>&1; then
+                 apprise_exit_status=$?
+                 log WARN "Failed to send Apprise notification to $url (Exit status $apprise_exit_status). Check Apprise URL or configuration."
+             fi
+         fi
+    done
+
+    log DEBUG "Apprise notification attempt finished."
+    return 0 # Always return 0 so notification failure doesn't kill the script
+}
 
 # --- Main Execution ---
 main() {
