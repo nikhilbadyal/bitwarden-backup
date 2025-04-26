@@ -1,0 +1,45 @@
+name: Bitwarden Backup
+
+on:
+  schedule:
+    # Run daily at 2am UTC
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4.2.2
+
+      - name: Create .env file from secret
+        run: |
+          echo "${{ secrets.BITWARDEN_BACKUP_ENV }}" > .env
+          # For debugging (don't show in logs)
+          echo "::add-mask::$(head -n 3 .env)"
+          echo "Generated .env file with $(wc -l .env | awk '{print $1}') variables"
+
+      - name: Set up Docker Compose
+        run: |
+          docker compose version
+
+      - name: Run backup with compose
+        run: |
+          docker compose -f docker-compose.yml up --build --force-recreate
+
+      - name: Save logs
+        if: always()
+        run: |
+          mkdir -p logs
+          docker compose logs > logs/backup-$(date +%Y%m%d-%H%M%S).log 2>&1 || true
+
+      - name: Upload logs artifact
+        if: always()
+        uses: actions/upload-artifact@v4.6.2
+        with:
+          name: backup-logs
+          path: logs/
+      - name: Clean up .env file
+        if: always()
+        run: rm -f .env

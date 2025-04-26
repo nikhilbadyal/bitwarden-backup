@@ -1,6 +1,8 @@
 services:
   bitwarden-backup:
-    image: nikhilbadyal/bitwarden-backup
+    build:
+      context: .
+      dockerfile: Dockerfile
     container_name: bitwarden-backup
     platform: linux/amd64
     volumes:

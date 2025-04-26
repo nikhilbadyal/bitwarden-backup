@@ -18,7 +18,7 @@ IFS=$'\n\t'
 # --- Constants ---
 readonly BACKUP_DIR="${BACKUP_DIR:-/backup}"
 readonly RETENTION_DAYS="${RETENTION_DAYS:-60}"
-readonly MIN_BACKUP_SIZE="${MIN_BACKUP_SIZE:-1024}"  # 1KB minimum size check
+readonly MIN_BACKUP_SIZE="${MIN_BACKUP_SIZE:-100000}"  # 1KB minimum size check
 readonly COMPRESSION_LEVEL="${COMPRESSION_LEVEL:-9}"  # Max gzip compression
 
 # Exit codes
@@ -45,7 +45,7 @@ readonly COLOR_DEBUG="\033[0;34m"
 TIMESTAMP=$(date "+%Y%m%d%H%M%S")
 RAW_FILE="${BACKUP_DIR}/bw_backup_${TIMESTAMP}.json"
 COMPRESSED_FILE=""
-
+export NODE_NO_DEPRECATION=1
 # --- Logging Function ---
 log() {
     local level=$1
@@ -67,7 +67,7 @@ log() {
 
     # Optional syslog integration
     if command -v logger >/dev/null 2>&1; then
-        logger -t "bw_backup" "[$level] $message"
+        logger -t "bw_backup" "[$level] $message" || true
     fi
 }
 
@@ -210,11 +210,7 @@ bw_unlock() {
     # Use 'if ! VAR=$(command)' pattern to check command success.
     local unlock_output
     if ! unlock_output=$(bw unlock --raw --passwordenv BW_PASSWORD 2>&1); then
-        log ERROR "Failed to unlock vault. Check BW_PASSWORD."
-        # Print unlock output if it contains error details (excluding the password itself)
-        # BE CAREFUL: Avoid logging the password. The --passwordenv helps here.
-        # Log specific known errors if possible, otherwise just log the failure.
-        # if [[ "$unlock_output" == *"incorrect password"* ]]; then log ERROR "Unlock failed: Incorrect password."; else log ERROR "Unlock failed: $unlock_output"; fi # Example specific error check
+        log ERROR "Failed to unlock vault. Check BW_PASSWORD ${unlock_output}."
         exit "$EXIT_UNLOCK_FAILED"
     fi
     BW_SESSION="$unlock_output" # Capture the session token
@@ -232,21 +228,26 @@ bw_unlock() {
 # Export the vault data in raw JSON format
 export_data() {
     log INFO "Exporting vault data..."
-    # Use the session token for export, save to file, exit on failure
-    if ! bw export --raw --session "$BW_SESSION" --format json > "$RAW_FILE"; then
+
+    bw sync --session "$BW_SESSION"
+
+    # Use the session token and feed password to interactive prompt
+    if ! echo "$BW_PASSWORD" | bw export --raw --session "$BW_SESSION" --format json > "$RAW_FILE"; then
         log ERROR "Failed to export vault data to $RAW_FILE."
+
         # Check if the file was partially created or empty
         if [ -f "$RAW_FILE" ]; then
-             if [ -s "$RAW_FILE" ]; then
-                  log ERROR "Partial export file '$RAW_FILE' might exist but the command failed."
-             else
-                  log ERROR "Export command failed and created an empty file '$RAW_FILE'."
-             fi
+            if [ -s "$RAW_FILE" ]; then
+                log ERROR "Partial export file '$RAW_FILE' might exist but the command failed."
+            else
+                log ERROR "Export command failed and created an empty file '$RAW_FILE'."
+            fi
         else
-             log ERROR "Export command failed and did not create the file '$RAW_FILE'."
+            log ERROR "Export command failed and did not create the file '$RAW_FILE'."
         fi
         exit "$EXIT_EXPORT_FAILED"
     fi
+
     log INFO "Exported ${RAW_FILE} ($(stat -c%s "$RAW_FILE") bytes)"
 }
 
@@ -271,6 +272,7 @@ validate_export() {
         if [ "$filesize" -lt "$MIN_BACKUP_SIZE" ]; then
             log WARN "Backup file size ($filesize bytes) is less than the minimum expected size ($MIN_BACKUP_SIZE bytes). This might indicate an issue."
             # Decide if this should be an ERROR causing script exit
+            exit "$EXIT_INVALID_BACKUP"
         fi
     fi
 
@@ -340,7 +342,6 @@ encrypt_verify() {
     rm -f "$temp_decrypted_file"
 }
 
-
 # Compress the raw backup file
 compress_backup() {
     log INFO "Compressing backup file..."
@@ -365,6 +366,124 @@ compress_backup() {
     log INFO "Backup file permissions set to 600."
 }
 
+upload_backup() {
+    log INFO "Uploading backup to remote storage using rclone..."
+
+    # Check if rclone is available
+    if ! command -v rclone >/dev/null 2>&1; then
+        log ERROR "rclone is not installed. Please install rclone to upload backups."
+        exit "$EXIT_MISSING_DEP"
+    fi
+
+    # Check if backup file exists
+    if [ ! -f "$COMPRESSED_FILE" ]; then
+        log ERROR "Backup file not found: $COMPRESSED_FILE. Cannot upload."
+        exit "$EXIT_INVALID_BACKUP"
+    fi
+
+    # Upload the backup file using rclone
+    if ! rclone copy "$COMPRESSED_FILE" "$RCLONE_R2_REMOTE_NAME:$RCLONE_R2_BUCKET_NAME/"; then
+        log ERROR "Failed to upload backup to rclone remote '$RCLONE_R2_REMOTE_NAME'."
+        exit "$EXIT_UNEXPECTED"
+    fi
+
+    log SUCCESS "Backup uploaded successfully to rclone remote '$RCLONE_R2_REMOTE_NAME'."
+}
+
+prune_old_backups_r2() {
+    log INFO "Pruning old backups from R2..."
+
+    local backups_to_keep=${R2_RETENTION_COUNT:-240}
+    log INFO "Retention policy: Keeping last $backups_to_keep backups"
+
+    if ! command -v rclone >/dev/null 2>&1; then
+        log ERROR "rclone is not installed"
+        return 1
+    fi
+
+    # Get sorted list of backup files (newest first)
+    local backup_list
+    # Use --output-json to get machine-readable output for jq
+    if ! backup_list=$(rclone lsjson --no-modtime "$RCLONE_R2_REMOTE_NAME:$RCLONE_R2_BUCKET_NAME/" | \
+        jq -r 'sort_by(.Name) | reverse | .[] | select(.Name | endswith(".enc")) | .Name'); then
+        return 1
+    fi
+
+    local total_backups=$(echo "$backup_list" | wc -l)
+    log INFO "Found $total_backups backup files"
+
+    if [ "$total_backups" -le "$backups_to_keep" ]; then
+        log INFO "No pruning needed"
+        return 0
+    fi
+
+    # --- Store files to delete in an array ---
+    local files_to_delete_array=()
+    # Use a while read loop to safely populate the array from the tail output
+    # Using <<< here to feed the string to the while read loop
+    while IFS= read -r line; do
+        files_to_delete_array+=("$line")
+    done <<< "$(echo "$backup_list" | tail -n $((total_backups - backups_to_keep)))"
+
+    local files_to_delete_count=${#files_to_delete_array[@]}
+    log INFO "Identified $files_to_delete_count files to delete."
+
+    local success_count=0
+    local error_files=() # Array to store files that genuinely failed deletion
+
+    for file in "${files_to_delete_array[@]}"; do
+
+        if [ -z "$file" ]; then
+            log WARN "Skipping empty filename in list."
+            continue
+        fi
+
+        log INFO "Attempting to delete: $file"
+
+
+        local delete_output_file=$(mktemp)
+
+        local delete_exit_status=0
+
+        # Execute rclone delete and capture stderr and exit status
+        # Use || true to prevent set -e from exiting on rclone failure
+        rclone delete --stats=0 "$RCLONE_R2_REMOTE_NAME:$RCLONE_R2_BUCKET_NAME/$file" 2>"$delete_output_file" || delete_exit_status=$?
+
+        if [ "$delete_exit_status" -eq 0 ]; then
+            log DEBUG "Successfully deleted: $file"
+            success_count=$((success_count + 1)) || true # Alternative syntax
+            # Clean up temp delete output file, ignore errors with || true or log WARN
+            rm -f "$delete_output_file"
+        else
+            local ls_output_file=$(mktemp)
+
+            local ls_exit_status=0
+
+            rclone ls "$RCLONE_R2_REMOTE_NAME:$RCLONE_R2_BUCKET_NAME/$file" >"$ls_output_file" 2>/dev/null || ls_exit_status=$?
+
+            if [ "$ls_exit_status" -ne 0 ]; then
+                 success_count=$((success_count + 1)) || true # Alternative syntax
+            else
+                 local rclone_error_message=$(<"$delete_output_file")
+                 error_files+=("$file")
+            fi
+            # Clean up temp ls output file, ignore errors with || true or log WARN
+            rm -f "$ls_output_file"
+        fi
+
+    done # End of for loop
+
+    log SUCCESS "Attempted to delete $files_to_delete_count files. Successfully confirmed $success_count deletions."
+
+    if [ ${#error_files[@]} -gt 0 ]; then
+        log ERROR "The following files could not be deleted and still exist:"
+        printf "%s\n" "${error_files[@]}" >&2
+    fi
+
+    return 0 # Return 0 unless the file listing failed or you uncommented the return 1 above
+}
+
+
 # --- Main Execution ---
 main() {
     log INFO "Starting Bitwarden backup process..."
@@ -377,6 +496,8 @@ main() {
     export_data
     validate_export
     compress_backup
+    upload_backup
+    prune_old_backups_r2
 
     log SUCCESS "Bitwarden backup process completed successfully! Backup file: $COMPRESSED_FILE"
 

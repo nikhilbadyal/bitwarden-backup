@@ -1,29 +1,32 @@
-# Use the latest Alpine image as the base
-FROM alpine:latest
+FROM debian:bullseye-slim
 
-# Install necessary packages
-RUN apk add --no-cache \
-    bash \
-    curl \
-    openssl \
-    rclone \
-    nodejs \
-    npm \
-    git \
-    ca-certificates \
-    tzdata
+# Install all dependencies in a single RUN layer
+RUN apt-get update && apt upgrade -y && \
+    apt-get install -y --no-install-recommends \
+        ca-certificates \
+        curl \
+        gnupg \
+        jq \
+        unzip \
+        wget && \
+    # Install Bitwarden CLI
+    wget --quiet -O /tmp/bitwarden-cli.zip "https://vault.bitwarden.com/download/?app=cli&platform=linux" && \
+    unzip /tmp/bitwarden-cli.zip -d /usr/local/bin/ && \
+    rm -f /tmp/bitwarden-cli.zip && \
+    chmod +x /usr/local/bin/bw && \
+    # Install rclone (auto-detect architecture)
+    curl https://rclone.org/install.sh | bash && \
+    # Clean up
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
-# Install Bitwarden CLI
-RUN npm install -g @bitwarden/cli
+# Set up Bitwarden CLI configuration directory
+RUN mkdir -p /root/.config/Bitwarden\ CLI
 
-# Set the working directory
 WORKDIR /app
+COPY . .
 
-# Copy the backup script into the container
-COPY scripts/backup.sh /app/backup.sh
+RUN chmod +x setup-rclone.sh scripts/backup.sh
 
-# Make the script executable
-RUN chmod +x /app/backup.sh
-
-# Set the entrypoint to the backup script
-ENTRYPOINT ["/app/backup.sh"]
+# Entrypoint: run setup and backup
+ENTRYPOINT ["bash", "-c", "./setup-rclone.sh && ./scripts/backup.sh"]
