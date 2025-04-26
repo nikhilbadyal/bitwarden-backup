@@ -115,7 +115,7 @@ docker-compose up --build
 
 ## Using Docker Run
 
-You can also run the backup script directly using docker run. 
+You can also run the backup script directly using docker run.
 ```bash
 docker run --rm \
   --env-file .env \

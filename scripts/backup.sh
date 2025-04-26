@@ -1,26 +1,16 @@
 #!/usr/bin/env bash
 
 # Bitwarden Vault Backup Script
-# Backs up a Bitwarden vault using the bw CLI and API key,
-# validates the export, compresses it, and prunes old backups.
-# Added feature: Skip upload if no changes detected based on hash stored in R2.
 
 # --- Strict Mode ---
 # Exit immediately if a command exits with a non-zero status.
 # Treat unset variables as an error and exit immediately.
 # Exit immediately if any command in a pipeline fails.
 set -euo pipefail
-# Use nullglob so glob patterns that match no files expand to nothing.
-# This is useful in find commands or loops.
-# shopt -s nullglob # Can add this for extra robustness in some scenarios
-# Split only on newlines and tabs, preserving spaces in filenames.
-IFS=$'\n\t'
 
 # --- Constants ---
 readonly BACKUP_DIR="${BACKUP_DIR:-/tmp/bw_backup}" # Use a temporary local directory
-# RETENTION_DAYS and MIN_BACKUP_SIZE are for local backups, not used after R2 pruning
-readonly RETENTION_DAYS="${RETENTION_DAYS:-60}" # Kept for reference, apply R2_RETENTION_COUNT instead
-readonly MIN_BACKUP_SIZE="${MIN_BACKUP_SIZE:-100000}"  # 1KB minimum size check
+readonly MIN_BACKUP_SIZE="${MIN_BACKUP_SIZE:-1}"  # 1KB minimum size check
 readonly COMPRESSION_LEVEL="${COMPRESSION_LEVEL:-9}"  # Max gzip compression
 
 # File within the R2 bucket to store the hash of the last successful backup
@@ -79,6 +69,7 @@ log() {
 }
 
 # Function to perform cleanup actions on script exit
+# shellcheck disable=SC2317
 cleanup() {
     # Capture the exit code from the script before the trap was triggered
     # This allows the trap to return the original exit status
@@ -113,7 +104,7 @@ cleanup() {
     declare -a sensitive_vars=(BW_SESSION BW_CLIENTID BW_CLIENTSECRET BW_PASSWORD ENCRYPTION_PASSWORD)
     for var in "${sensitive_vars[@]}"; do
         if declare -p "$var" 2>/dev/null | grep -q "^declare"; then
-             eval "$var='$(printf "%*s" "${#${!var}}" | tr ' ' 'X')'"
+             eval "$var='$(printf "%*s" "${#${!var}}" "" | tr ' ' 'X')'"
         fi
     done
 
@@ -126,7 +117,6 @@ cleanup() {
 # Trap for script exit (success or failure), interrupt (Ctrl+C), and termination signals
 trap cleanup EXIT INT TERM
 
-# --- Helper Functions ---
 
 # --- Dependency Check ---
 check_dependencies() {
@@ -190,7 +180,7 @@ validate_environment() {
     log SUCCESS "Rclone remote accessible."
 }
 
-# --- Bitwarden Operations (Same as before) ---
+# --- Bitwarden Operations ---
 
 bw_logout() {
     log INFO "Logging out from any existing Bitwarden session..."
@@ -274,7 +264,6 @@ validate_export() {
     log SUCCESS "Backup file is valid JSON."
 }
 
-# --- Hash Management in R2 ---
 
 # Calculate SHA256 hash of a file
 get_local_file_hash() {
@@ -350,7 +339,7 @@ encrypt_backup() {
         exit "$EXIT_COMPRESS_FAILED"
     fi
 
-    # Encrypt with AES-256-CBC and PBKDF2. Use -pass env: to securely pass password.
+    # Encrypt with AES-256-CBC and PBKDF2.
     if ! openssl enc -aes-256-cbc -pbkdf2 -iter 100000 -salt \
         -in "$COMPRESSED_FILE" -out "$temp_encrypted_file" \
         -pass env:ENCRYPTION_PASSWORD; then
@@ -380,7 +369,8 @@ encrypt_verify() {
         log ERROR "Encrypted backup file not found for verification: $encrypted_file"
         exit "$EXIT_INVALID_BACKUP"
     fi
-    local temp_decrypted_file=$(mktemp "${BACKUP_DIR}/bw_decrypt_verify.XXXXXXXXXX.gz")
+    local temp_decrypted_file # Declare the variable
+    temp_decrypted_file=$(mktemp "${BACKUP_DIR}/bw_decrypt_verify.XXXXXXXXXX.gz") # Assign the result of mktemp
 
     if ! openssl enc -aes-256-cbc -d -pbkdf2 -iter 100000 \
             -salt -in "$encrypted_file" -pass env:ENCRYPTION_PASSWORD -out "$temp_decrypted_file" 2>/dev/null; then
@@ -475,7 +465,8 @@ prune_old_backups_r2() {
         return 0
     fi
 
-    local total_backups=$(echo "$backup_names_sorted_newest_first" | wc -l)
+    local total_backups
+    total_backups=$(echo "$backup_names_sorted_newest_first" | wc -l)
     log INFO "Found $total_backups backup files ending in .enc."
 
     if [ "$total_backups" -le "$backups_to_keep" ]; then
@@ -576,9 +567,6 @@ main() {
         upload_backup   # Uploads the final .enc file
 
         # If upload was successful, save the hash of the raw data to R2
-        # Checking upload_backup's exit status isn't strictly needed due to set -e,
-        # but good practice if set -e were removed.
-        # The upload_backup call itself will cause script exit on failure.
         save_current_remote_hash "$current_raw_hash" || log WARN "Failed to save the new hash to R2 after successful backup upload."
     fi
 
