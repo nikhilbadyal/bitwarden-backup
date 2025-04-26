@@ -1,0 +1,24 @@
+# Ignore environment variables
+.env
+
+# Ignore backup data
+/backups/
+
+/root/
+/tmp/
+/app/rclone.conf
+
+# Logs
+*.log
+
+# Ignore Docker build cache artifacts
+__pycache__/
+*.pyc
+
+# Ignore editor/system files
+.DS_Store
+*.swp
+*.swo
+.idea/
+.vscode/
+rclone.conf

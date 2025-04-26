@@ -1,0 +1,9 @@
+services:
+  bitwarden-backup:
+    build: .
+    container_name: bitwarden-backup
+    env_file: .env
+    volumes:
+      - ./scripts:/app/scripts          # Mount the local scripts folder
+      - ./backup:/backup                # Mount backup output folder
+    entrypoint: ["/bin/bash", "/app/backup.sh"]
