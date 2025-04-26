@@ -207,7 +207,6 @@ bw_login() {
 bw_unlock() {
     log INFO "Unlocking vault..."
     # Unlock the vault and capture the session token.
-    # Use 'if ! VAR=$(command)' pattern to check command success.
     local unlock_output
     if ! unlock_output=$(bw unlock --raw --passwordenv BW_PASSWORD 2>&1); then
         log ERROR "Failed to unlock vault. Check BW_PASSWORD ${unlock_output}."

@@ -1,6 +1,9 @@
 name: Bitwarden Backup
 
 on:
+  push:
+    branches:
+      - 'main'
   schedule:
     # Run daily at 2am UTC
     - cron: '0 2 * * *'

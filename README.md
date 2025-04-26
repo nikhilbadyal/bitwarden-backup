@@ -71,23 +71,23 @@ This repository contains two bash scripts:
 
 The scripts rely on environment variables, typically loaded from the `.env` file by `setup-rclone.sh` and `backup.sh`.
 
-| Variable                    | Script(s)           | Description                                                                                                | Default        | Required |
-| :-------------------------- | :------------------ | :--------------------------------------------------------------------------------------------------------- | :------------- | :------- |
-| `BW_CLIENTID`               | `backup.sh`         | Your Bitwarden API Client ID.                                                                              | None           | Yes      |
-| `BW_CLIENTSECRET`           | `backup.sh`         | Your Bitwarden API Client Secret.                                                                          | None           | Yes      |
-| `BW_PASSWORD`               | `backup.sh`         | Your Bitwarden Master Password. Used to unlock the vault.                                                  | None           | Yes      |
-| `ENCRYPTION_PASSWORD`       | `backup.sh`         | A strong, unique password used to encrypt the compressed backup file. **CRITICAL: Do not lose this!** | None           | Yes      |
-| `BACKUP_DIR`                | `backup.sh`         | The directory where the backup files will be stored before upload.                                         | `/backup`      | No       |
-| `MIN_BACKUP_SIZE`           | `backup.sh`         | Minimum expected size (in bytes) of the raw JSON backup file for validation.                               | `100000`       | No       |
-| `COMPRESSION_LEVEL`         | `backup.sh`         | Gzip compression level (1-9). 9 is maximum compression.                                                  | `9`            | No       |
-| `RCLONE_R2_REMOTE_NAME`     | `setup-rclone.sh`, `backup.sh` | The name given to the R2 remote in the `rclone.conf` file. Must match in both scripts/env.               | None           | Yes      |
-| `RCLONE_R2_BUCKET_NAME`     | `setup-rclone.sh`, `backup.sh` | The name of your Cloudflare R2 bucket.                                                                     | None           | Yes      |
-| `RCLONE_R2_ENDPOINT`        | `setup-rclone.sh`   | The S3 endpoint URL for your Cloudflare R2 bucket (e.g., `https://<account_id>.r2.cloudflarestorage.com`). | None           | Yes      |
-| `RCLONE_R2_ACCESS_KEY_ID`   | `setup-rclone.sh`   | Your Cloudflare R2 Access Key ID.                                                                          | None           | Yes      |
-| `RCLONE_R2_SECRET_ACCESS_KEY` | `setup-rclone.sh`   | Your Cloudflare R2 Secret Access Key.                                                                      | None           | Yes      |
-| `R2_RETENTION_COUNT`        | `backup.sh`         | The number of the *most recent* backups to keep in the R2 bucket. Older backups will be pruned.            | `240`          | No       |
+| Variable                      | Script(s)                      | Description                                                                                                | Default   | Required |
+|:------------------------------|:-------------------------------|:-----------------------------------------------------------------------------------------------------------|:----------|:---------|
+| `BW_CLIENTID`                 | `backup.sh`                    | Your Bitwarden API Client ID.                                                                              | None      | Yes      |
+| `BW_CLIENTSECRET`             | `backup.sh`                    | Your Bitwarden API Client Secret.                                                                          | None      | Yes      |
+| `BW_PASSWORD`                 | `backup.sh`                    | Your Bitwarden Master Password. Used to unlock the vault.                                                  | None      | Yes      |
+| `ENCRYPTION_PASSWORD`         | `backup.sh`                    | A strong, unique password used to encrypt the compressed backup file. **CRITICAL: Do not lose this!**      | None      | Yes      |
+| `BACKUP_DIR`                  | `backup.sh`                    | The directory where the backup files will be stored before upload.                                         | `/backup` | No       |
+| `MIN_BACKUP_SIZE`             | `backup.sh`                    | Minimum expected size (in bytes) of the raw JSON backup file for validation.                               | `100000`  | No       |
+| `COMPRESSION_LEVEL`           | `backup.sh`                    | Gzip compression level (1-9). 9 is maximum compression.                                                    | `9`       | No       |
+| `RCLONE_R2_REMOTE_NAME`       | `setup-rclone.sh`, `backup.sh` | The name given to the R2 remote in the `rclone.conf` file. Must match in both scripts/env.                 | None      | Yes      |
+| `RCLONE_R2_BUCKET_NAME`       | `setup-rclone.sh`, `backup.sh` | The name of your Cloudflare R2 bucket.                                                                     | None      | Yes      |
+| `RCLONE_R2_ENDPOINT`          | `setup-rclone.sh`              | The S3 endpoint URL for your Cloudflare R2 bucket (e.g., `https://<account_id>.r2.cloudflarestorage.com`). | None      | Yes      |
+| `RCLONE_R2_ACCESS_KEY_ID`     | `setup-rclone.sh`              | Your Cloudflare R2 Access Key ID.                                                                          | None      | Yes      |
+| `RCLONE_R2_SECRET_ACCESS_KEY` | `setup-rclone.sh`              | Your Cloudflare R2 Secret Access Key.                                                                      | None      | Yes      |
+| `R2_RETENTION_COUNT`          | `backup.sh`                    | The number of the *most recent* backups to keep in the R2 bucket. Older backups will be pruned.            | `240`     | No       |
 
-## Usage
+## Usage Manual
 
 1.  Ensure you have completed the [Setup](#setup) steps.
 2.  Run the `backup.sh` script:
@@ -102,6 +102,25 @@ The scripts rely on environment variables, typically loaded from the `.env` file
     0 3 * * * /path/to/your/backup.sh >> /var/log/bitwarden_backup.log 2>&1
     ```
     **Note:** Ensure your cron environment has access to the necessary commands (`bw`, `jq`, `gzip`, `openssl`, `rclone`) and the `.env` file (the script handles loading `.env` if located in the same directory). You might need to specify the full path to the script and ensure the user running the cron job has the necessary permissions.
+
+You can run the backup using `docker-compose` or a direct `docker run` command.
+
+### Using Docker Compose
+
+Docker Compose is the recommended way to run the backup, especially for automation. Ensure your `.env` file, exists.
+
+```yaml
+docker-compose up --build
+```
+
+## Using Docker Run
+
+You can also run the backup script directly using docker run. 
+```bash
+docker run --rm \
+  --env-file .env \
+  nikhilbadyal/bitwarden-backup
+```
 
 ## Logging
 
