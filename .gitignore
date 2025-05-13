@@ -22,3 +22,5 @@ __pycache__/
 .idea/
 .vscode/
 rclone.conf
+bw.json
+totp.txt

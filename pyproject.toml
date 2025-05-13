@@ -1,0 +1,47 @@
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+fix = true
+show-fixes = true
+[tool.ruff.lint]
+select = [ "ALL"]
+ignore = [
+    "D401",
+    "ANN401",
+    "S603",
+    "S607",
+    "ARG002", #unused-method-argument
+    "PTH122", #os-path-splitext
+    "TRY301", #raise-within-try
+    "PERF203", #try-except-in-loop
+    "UP004", #useless-object-inheritance
+    "PLR0911", #too many returns
+    "S310" # Audit URL open for permitted schemes.
+]
+[tool.ruff.lint.pydocstyle]
+convention = "numpy"
+
+[tool.docformatter]
+recursive = true
+wrap-summaries = 120
+wrap-descriptions = 120
+
+[tool.black]
+line-length = 120
+
+[pycodestyle]
+max-line-length = 120
+exclude = ["venv"]
+
+
+[tool.mypy]
+ignore_missing_imports = true
+check_untyped_defs = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+warn_unused_configs = true
+
+[tool.isort]
+line_length = 120
+skip = ["venv"]
+profile = "black"
