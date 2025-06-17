@@ -1,8 +1,9 @@
 # Bitwarden Vault Backup Script
 
 This repository contains two bash scripts:
-1.  `setup-rclone.sh`: Configures `rclone` specifically for Cloudflare R2 storage using environment variables. This script only needs to be run *once* initially or when your R2 configuration changes.
-2.  `backup.sh`: Performs an automated backup of a Bitwarden vault using the `bw` CLI, validates the export, compresses and encrypts it, uploads it to the configured R2 bucket using `rclone`, prunes old backups from R2 based on a retention count, and optionally sends notifications via Apprise.
+
+1. `setup-rclone.sh`: Configures `rclone` specifically for Cloudflare R2 storage using environment variables. This script only needs to be run *once* initially or when your R2 configuration changes.
+2. `backup.sh`: Performs an automated backup of a Bitwarden vault using the `bw` CLI, validates the export, compresses and encrypts it, uploads it to the configured R2 bucket using `rclone`, prunes old backups from R2 based on a retention count, and optionally sends notifications via Apprise.
 
 ## Features
 
@@ -32,8 +33,9 @@ This repository contains two bash scripts:
 
 ## Setup
 
-1.  **Clone or download** the scripts.
-2.  **Create a `.env` file** in the same directory as the scripts. This file will hold your sensitive configuration variables. **Secure this file appropriately!**
+1. **Clone or download** the scripts.
+2. **Create a `.env` file** in the same directory as the scripts. This file will hold your sensitive configuration variables. **Secure this file appropriately!**
+
     ```dotenv
     # .env file
     BW_CLIENTID="your_bitwarden_client_id"
@@ -66,12 +68,15 @@ This repository contains two bash scripts:
     # Separate multiple URLs with spaces or newlines (e.g., 'mailto://user@example.com' 'tgram://token/chat_id')
     # APPRISE_URLS="url1://target1 url2://target2"
     ```
-3.  **Run `setup-rclone.sh`**: This script reads the R2 variables from `.env` and creates/updates the `rclone.conf` file in a location like `/root/.config/rclone/rclone.conf` or `~/.config/rclone/rclone.conf` depending on where the script is run. This only needs to be done once or when your R2 configuration changes.
+
+3. **Run `setup-rclone.sh`**: This script reads the R2 variables from `.env` and creates/updates the `rclone.conf` file in a location like `/root/.config/rclone/rclone.conf` or `~/.config/rclone/rclone.conf` depending on where the script is run. This only needs to be done once or when your R2 configuration changes.
+
     ```bash
     ./setup-rclone.sh
     ```
-4.  **Ensure required dependencies are installed** (`bw`, `jq`, `gzip`, `openssl`, `rclone`, and `apprise` if using notifications). The `backup.sh` script will check for `apprise` only if `APPRISE_URLS` is set.
-5.  **Set appropriate permissions** for the scripts (e.g., `chmod +x setup-rclone.sh backup.sh`).
+
+4. **Ensure required dependencies are installed** (`bw`, `jq`, `gzip`, `openssl`, `rclone`, and `apprise` if using notifications). The `backup.sh` script will check for `apprise` only if `APPRISE_URLS` is set.
+5. **Set appropriate permissions** for the scripts (e.g., `chmod +x setup-rclone.sh backup.sh`).
 
 ## Configuration (Environment Variables)
 
@@ -96,18 +101,22 @@ The scripts rely on environment variables, typically loaded from the `.env` file
 
 ## Usage Manual
 
-1.  Ensure you have completed the [Setup](#setup) steps.
-2.  Run the `backup.sh` script:
+1. Ensure you have completed the [Setup](#setup) steps.
+2. Run the `backup.sh` script:
+
     ```bash
     ./scripts/backup.sh
     ```
+
     The script will output its progress to stderr.
 
-3.  **Automation with Cron:** It is highly recommended to automate this process using cron. Edit your crontab (`crontab -e`) and add a line like this (adjust the path and schedule as needed):
+3. **Automation with Cron:** It is highly recommended to automate this process using cron. Edit your crontab (`crontab -e`) and add a line like this (adjust the path and schedule as needed):
+
     ```crontab
     # Example: Run daily at 3:00 AM
     0 3 * * * /path/to/your/backup.sh >> /var/log/bitwarden_backup.log 2>&1
     ```
+
     **Note:** Ensure your cron environment has access to the necessary commands (`bw`, `jq`, `gzip`, `openssl`, `rclone`) and the `.env` file (the script handles loading `.env` if located in the same directory). You might need to specify the full path to the script and ensure the user running the cron job has the necessary permissions.
 
 You can run the backup using `docker-compose` or a direct `docker run` command.
@@ -123,6 +132,7 @@ docker-compose up --build
 ## Using Docker Run
 
 You can also run the backup script directly using docker run.
+
 ```bash
 docker run --rm \
   --env-file .env \
