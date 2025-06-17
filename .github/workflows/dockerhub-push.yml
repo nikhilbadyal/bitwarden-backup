@@ -4,8 +4,6 @@ on:
   push:
     branches:
       - 'main'
-    paths:
-      - 'Dockerfile'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
