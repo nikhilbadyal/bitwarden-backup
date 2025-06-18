@@ -826,7 +826,7 @@ compress_backup() {
     log INFO "Compressing backup file..."
     local temp_compressed_file="${BACKUP_DIR}/bw_backup_${TIMESTAMP}.json.gz.temp"
 
-    if gzip -c -9 "$RAW_FILE" > "$temp_compressed_file"; then
+    if gzip -c -"${COMPRESSION_LEVEL}" "$RAW_FILE" > "$temp_compressed_file"; then
         COMPRESSED_FILE="$temp_compressed_file"
         log SUCCESS "Backup compressed to temporary file: $temp_compressed_file"
     else
