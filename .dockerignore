@@ -1,0 +1,62 @@
+# Git directory and related files
+.git
+.gitignore
+.gitattributes
+
+# Documentation
+README.md
+CHANGELOG.md
+CONTRIBUTING.md
+LICENSE*
+*.md
+
+# Development and CI files
+.pre-commit-config.yaml
+pyproject.toml
+.github/
+.vscode/
+.idea/
+
+# Environment and configuration files that shouldn't be in container
+.env
+.env.*
+env.example
+
+# Temporary and cache files
+*.tmp
+*.log
+*.cache
+.DS_Store
+Thumbs.db
+
+# Python artifacts (if any)
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Node modules (if any)
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Local development files
+docker-compose.local.yml
+*.local

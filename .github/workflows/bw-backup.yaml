@@ -23,6 +23,11 @@ jobs:
         run: |
           docker compose version
 
+      - name: Run pre-commit shellcheck
+        run: |
+          pip install pre-commit
+          pre-commit run -a
+
       - name: Run backup with compose
         run: |
           docker compose -f docker-compose.yml up --build --force-recreate

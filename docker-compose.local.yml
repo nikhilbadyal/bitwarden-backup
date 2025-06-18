@@ -9,3 +9,5 @@ services:
       - .:/app:rw
     env_file:
       - .env
+    environment:
+      - BACKUP_DIR=/tmp/bw_backup  # Override for Docker container

@@ -1,7 +1,7 @@
 FROM debian:bullseye-slim
 
 # Install all dependencies in a single RUN layer
-RUN apt-get update && apt upgrade -y && \
+RUN apt-get update && apt-get upgrade -y && \
     apt-get install -y --no-install-recommends \
         ca-certificates \
         curl \
@@ -24,15 +24,26 @@ RUN apt-get update && apt upgrade -y && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
-# Set up Bitwarden CLI configuration directory (often /root/.config/Bitwarden CLI)
-# This is where the bw CLI might store config or session files, good practice to create it.
-RUN mkdir -p /root/.config/Bitwarden\ CLI
+# Create non-root user for security
+RUN groupadd -r backupuser && useradd -r -g backupuser -s /bin/bash backupuser
+
+# Set up Bitwarden CLI configuration directory
+RUN mkdir -p /home/backupuser/.config/Bitwarden\ CLI && \
+    chown -R backupuser:backupuser /home/backupuser/.config
 
 WORKDIR /app
 COPY . .
 
-# Make scripts executable
-RUN chmod +x setup-rclone.sh scripts/backup.sh
+# Make scripts executable and set ownership
+RUN chmod +x setup-rclone.sh scripts/backup.sh && \
+    chown -R backupuser:backupuser /app
+
+# Switch to non-root user
+USER backupuser
+
+# Add health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD command -v bw >/dev/null && command -v rclone >/dev/null && command -v jq >/dev/null || exit 1
 
 # Entrypoint: run setup and backup
 ENTRYPOINT ["bash", "-c", "./setup-rclone.sh && ./scripts/backup.sh"]

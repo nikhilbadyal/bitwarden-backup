@@ -7,3 +7,19 @@ services:
       - .:/app:rw
     env_file:
       - .env
+    environment:
+      - BACKUP_DIR=/tmp/bw_backup  # Override for Docker container
+    pull_policy: always
+    restart: "no"  # Don't restart automatically for backup jobs
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp:noexec,nosuid,size=100m
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - SETGID
+      - SETUID
