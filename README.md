@@ -1,19 +1,23 @@
 # Bitwarden Vault Backup Script
 
-This repository contains two bash scripts:
+This repository contains bash scripts for automated Bitwarden vault backups with **multi-remote cloud storage support**:
 
-1. `setup-rclone.sh`: Configures `rclone` specifically for Cloudflare R2 storage using environment variables. This script only needs to be run *once* initially or when your R2 configuration changes.
-2. `backup.sh`: Performs an automated backup of a Bitwarden vault using the `bw` CLI, validates the export, compresses and encrypts it, uploads it to the configured R2 bucket using `rclone`, prunes old backups from R2 based on a retention count, and optionally sends notifications via Apprise.
+1. `setup-rclone.sh`: Configures rclone from a base64-encoded configuration to support **ANY rclone-compatible storage service** (not just Cloudflare R2). This script only needs to be run *once* initially or when your configuration changes.
+2. `backup.sh`: Performs automated backup of a Bitwarden vault, validates, compresses, encrypts, and uploads to **ALL configured remotes** simultaneously.
+3. `generate-rclone-base64.sh`: Helper script to generate base64-encoded rclone configurations.
 
 ## Features
 
+* **Multi-Remote Support**: Backup to multiple cloud storage services simultaneously (S3, Google Drive, Dropbox, OneDrive, Cloudflare R2, and 40+ others supported by rclone).
+* **Base64 Configuration**: Accepts rclone config as base64 to avoid typing errors and enable easy deployment.
+* **Isolated Configuration**: Uses project-specific rclone config to avoid interfering with your global rclone setup.
 * Automated Bitwarden vault backup via API key.
 * Validation of the exported JSON data (format and minimum size).
 * Gzip compression of the backup file.
 * Strong encryption of the compressed backup using OpenSSL (AES-256-CBC) with a user-provided password.
 * Verification of the encryption by attempting decryption and checking for valid gzip format.
-* Uploads the encrypted backup to Cloudflare R2 storage using `rclone`.
-* Prunes old backups from the R2 bucket based on a configurable retention count.
+* Intelligent change detection to avoid unnecessary uploads when vault hasn't changed.
+* Independent retention management per remote based on configurable count.
 * **Optional Apprise notifications on success and failure.**
 * Robust error handling and logging.
 * Secure cleanup process that logs out of Bitwarden and unsets sensitive environment variables.
@@ -25,146 +29,272 @@ This repository contains two bash scripts:
 * `jq` installed for JSON validation.
 * `gzip` installed for compression.
 * `openssl` installed for encryption and decryption verification.
-* `rclone` installed for uploading to R2 and pruning.
-* Access to a Cloudflare R2 bucket and its necessary credentials (Endpoint, Access Key ID, Secret Access Key).
+* `rclone` installed for cloud storage operations.
+* Access to one or more cloud storage services with rclone support.
 * `apprise` installed (if using notifications).
 * A `.env` file containing all required environment variables (see Configuration section).
-* A suitable directory for storing temporary and final backup files before upload (default is `/tmp/bw_backup`). The script requires write permissions to this directory.
+* A suitable directory for storing temporary backup files (default is `/tmp/bw_backup`).
 
-## Setup
+## Quick Start
 
-1. **Clone or download** the scripts.
-2. **Create a `.env` file** in the same directory as the scripts. This file will hold your sensitive configuration variables. **Secure this file appropriately!**
+### 1. Generate Your Rclone Configuration
 
-    ```dotenv
-    # .env file
-    BW_CLIENTID="your_bitwarden_client_id"
-    BW_CLIENTSECRET="your_bitwarden_client_secret"
-    BW_PASSWORD="your_bitwarden_master_password" # Used for vault unlock
+**Option A: From existing rclone config**
+```bash
+./generate-rclone-base64.sh
+```
 
-    # Encryption password for the backup file
-    ENCRYPTION_PASSWORD="a_strong_unique_encryption_password"
+**Option B: Interactive configuration**
+```bash
+./generate-rclone-base64.sh --interactive
+```
 
-    # Rclone configuration for Cloudflare R2
-    RCLONE_R2_REMOTE_NAME="my-r2-remote" # A name you choose for the rclone remote
-    RCLONE_R2_BUCKET_NAME="your-r2-bucket-name"
-    RCLONE_R2_ENDPOINT="your-r2-endpoint-url" # e.g., https://<account_id>.r2.cloudflarestorage.com
-    RCLONE_R2_ACCESS_KEY_ID="your_r2_access_key_id"
-    RCLONE_R2_SECRET_ACCESS_KEY="your_r2_secret_access_key"
+**Option C: Test and save to file**
+```bash
+./generate-rclone-base64.sh --test --output my-config.txt
+```
 
-    # Optional: Customize backup directory (default: /tmp/bw_backup - temporary)
-    # BACKUP_DIR="/path/to/your/temporary/storage"
+### 2. Create Your .env File
 
-    # Optional: Customize minimum backup size check (default: 100000 bytes)
-    # MIN_BACKUP_SIZE="200000"
+Copy `env.example` to `.env` and fill in your credentials:
 
-    # Optional: Customize gzip compression level (1-9, default: 9)
-    # COMPRESSION_LEVEL="6"
+```bash
+cp env.example .env
+# Edit .env with your values
+```
 
-    # Optional: Customize R2 retention count (default: 240 backups)
-    # R2_RETENTION_COUNT="180"
+**Note:** All scripts automatically load environment variables from `.env` if the file exists in the project root. No need to manually source or export variables!
 
-    # Optional: Apprise notification URLs (requires 'apprise' to be installed)
-    # Separate multiple URLs with spaces or newlines (e.g., 'mailto://user@example.com' 'tgram://token/chat_id')
-    # APPRISE_URLS="url1://target1 url2://target2"
-    ```
+### 3. Run the Backup
 
-3. **Run `setup-rclone.sh`**: This script reads the R2 variables from `.env` and creates/updates the `rclone.conf` file in a location like `/root/.config/rclone/rclone.conf` or `~/.config/rclone/rclone.conf` depending on where the script is run. This only needs to be done once or when your R2 configuration changes.
+**Using Scripts:**
+```bash
+./setup-rclone.sh && ./scripts/backup.sh
+```
 
-    ```bash
-    ./setup-rclone.sh
-    ```
-
-4. **Ensure required dependencies are installed** (`bw`, `jq`, `gzip`, `openssl`, `rclone`, and `apprise` if using notifications). The `backup.sh` script will check for `apprise` only if `APPRISE_URLS` is set.
-5. **Set appropriate permissions** for the scripts (e.g., `chmod +x setup-rclone.sh backup.sh`).
-
-## Configuration (Environment Variables)
-
-The scripts rely on environment variables, typically loaded from the `.env` file.
-
-| Variable                      | Script(s)                      | Description                                                                                                | Default          | Required |
-|:------------------------------|:-------------------------------|:-----------------------------------------------------------------------------------------------------------|:-----------------|:---------|
-| `BW_CLIENTID`                 | `backup.sh`                    | Your Bitwarden API Client ID.                                                                              | None             | Yes      |
-| `BW_CLIENTSECRET`             | `backup.sh`                    | Your Bitwarden API Client Secret.                                                                          | None             | Yes      |
-| `BW_PASSWORD`                 | `backup.sh`                    | Your Bitwarden Master Password. Used to unlock the vault.                                                  | None             | Yes      |
-| `ENCRYPTION_PASSWORD`         | `backup.sh`                    | A strong, unique password used to encrypt the compressed backup file. **CRITICAL: Do not lose this!**      | None             | Yes      |
-| `BACKUP_DIR`                  | `backup.sh`                    | The temporary directory where the backup files will be stored before upload. Cleans up on exit.            | `/tmp/bw_backup` | No       |
-| `MIN_BACKUP_SIZE`             | `backup.sh`                    | Minimum expected size (in bytes) of the raw JSON backup file for validation.                               | `100000`         | No       |
-| `COMPRESSION_LEVEL`           | `backup.sh`                    | Gzip compression level (1-9). 9 is maximum compression.                                                    | `9`              | No       |
-| `RCLONE_R2_REMOTE_NAME`       | `setup-rclone.sh`, `backup.sh` | The name given to the R2 remote in the `rclone.conf` file. Must match in both scripts/env.                 | None             | Yes      |
-| `RCLONE_R2_BUCKET_NAME`       | `setup-rclone.sh`, `backup.sh` | The name of your Cloudflare R2 bucket.                                                                     | None             | Yes      |
-| `RCLONE_R2_ENDPOINT`          | `setup-rclone.sh`              | The S3 endpoint URL for your Cloudflare R2 bucket (e.g., `https://<account_id>.r2.cloudflarestorage.com`). | None             | Yes      |
-| `RCLONE_R2_ACCESS_KEY_ID`     | `setup-rclone.sh`              | Your Cloudflare R2 Access Key ID.                                                                          | None             | Yes      |
-| `RCLONE_R2_SECRET_ACCESS_KEY` | `setup-rclone.sh`              | Your Cloudflare R2 Secret Access Key.                                                                      | None             | Yes      |
-| `R2_RETENTION_COUNT`          | `backup.sh`                    | The number of the *most recent* backups to keep in the R2 bucket. Older backups will be pruned.            | `240`            | No       |
-| `APPRISE_URLS`                | `backup.sh`                    | Apprise notification URLs (e.g., `tgram://token/chat_id`, `mailto://user@example.com`).                    | None             | No       |
-
-## Usage Manual
-
-1. Ensure you have completed the [Setup](#setup) steps.
-2. Run the `backup.sh` script:
-
-    ```bash
-    ./scripts/backup.sh
-    ```
-
-    The script will output its progress to stderr.
-
-3. **Automation with Cron:** It is highly recommended to automate this process using cron. Edit your crontab (`crontab -e`) and add a line like this (adjust the path and schedule as needed):
-
-    ```crontab
-    # Example: Run daily at 3:00 AM
-    0 3 * * * /path/to/your/backup.sh >> /var/log/bitwarden_backup.log 2>&1
-    ```
-
-    **Note:** Ensure your cron environment has access to the necessary commands (`bw`, `jq`, `gzip`, `openssl`, `rclone`) and the `.env` file (the script handles loading `.env` if located in the same directory). You might need to specify the full path to the script and ensure the user running the cron job has the necessary permissions.
-
-You can run the backup using `docker-compose` or a direct `docker run` command.
-
-### Using Docker Compose
-
-Docker Compose is the recommended way to run the backup, especially for automation. Ensure your `.env` file, exists.
-
-```yaml
+**Using Docker:**
+```bash
 docker-compose up --build
 ```
 
-## Using Docker Run
+## Configuration (Environment Variables)
 
-You can also run the backup script directly using docker run.
+### Required Variables
 
-```bash
-docker run --rm \
-  --env-file .env \
-  nikhilbadyal/bitwarden-backup
+| Variable               | Description                           | Example                       |
+|:-----------------------|:--------------------------------------|:------------------------------|
+| `BW_CLIENTID`          | Your Bitwarden API Client ID          | `user.1234567890abcdef`       |
+| `BW_CLIENTSECRET`      | Your Bitwarden API Client Secret      | `abcdef1234567890`            |
+| `BW_PASSWORD`          | Your Bitwarden Master Password        | `MySecretPassword123!`        |
+| `ENCRYPTION_PASSWORD`  | Strong password for backup encryption | `BackupEncryption456!`        |
+| `RCLONE_CONFIG_BASE64` | Base64-encoded rclone configuration   | `W215LXMzXQp0eXBlID0gczMK...` |
+
+### Optional Variables
+
+| Variable            | Description                          | Default          |
+|:--------------------|:-------------------------------------|:-----------------|
+| `BACKUP_DIR`        | Temporary directory for backup files | `/tmp/bw_backup` |
+| `MIN_BACKUP_SIZE`   | Minimum backup size in bytes         | `1`              |
+| `COMPRESSION_LEVEL` | Gzip compression level (1-9)         | `9`              |
+| `RETENTION_COUNT`   | Number of backups to keep per remote | `240`            |
+| `APPRISE_URLS`      | Notification URLs (space-separated)  | None             |
+
+### Legacy Variables (No Longer Used)
+
+The following R2-specific variables have been replaced by the multi-remote system:
+- `RCLONE_R2_REMOTE_NAME`
+- `RCLONE_R2_BUCKET_NAME`
+- `RCLONE_R2_ENDPOINT`
+- `RCLONE_R2_ACCESS_KEY_ID`
+- `RCLONE_R2_SECRET_ACCESS_KEY`
+- `R2_RETENTION_COUNT`
+
+## Supported Cloud Storage Services
+
+This backup solution supports **ALL rclone-compatible storage services**, including:
+
+**Object Storage:**
+- Amazon S3, Google Cloud Storage, Azure Blob Storage
+- Cloudflare R2, Backblaze B2, Wasabi, MinIO
+- IBM Cloud Object Storage, Oracle Cloud Storage
+
+**Consumer Cloud Storage:**
+- Google Drive, Dropbox, OneDrive, Box
+- pCloud, Mega, Yandex Disk, Mail.ru Cloud
+
+**Enterprise Storage:**
+- SFTP, FTP, WebDAV, HTTP
+- Swift (OpenStack), Ceph, QingStor
+
+**And many more!** See the [rclone documentation](https://rclone.org/) for the complete list.
+
+## Example Multi-Remote Setup
+
+Your rclone configuration can include multiple remotes:
+
+```ini
+[aws-s3]
+type = s3
+provider = AWS
+access_key_id = AKIAIOSFODNN7EXAMPLE
+secret_access_key = wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY
+region = us-east-1
+
+[google-drive]
+type = drive
+client_id = 123456789.apps.googleusercontent.com
+client_secret = abcdefghijklmnopqrstuvwx
+token = {"access_token":"ya29.a0AfH6SMC..."}
+
+[cloudflare-r2]
+type = s3
+provider = Cloudflare
+access_key_id = your_r2_access_key
+secret_access_key = your_r2_secret_key
+endpoint = https://abc123.r2.cloudflarestorage.com
+
+[dropbox-backup]
+type = dropbox
+token = {"access_token":"sl.B0abcdefghijklmnop..."}
 ```
 
-## Logging
+The backup script will automatically:
+1. Detect all 4 remotes
+2. Upload your backup to ALL of them
+3. Maintain separate retention policies for each
+4. Track changes independently per remote
 
-The script outputs informational, warning, and error messages to standard error (stderr). You can redirect stderr to a log file when running via cron or manually. It also includes optional integration with `logger` for syslog if the command is available.
+## Usage
 
-## Cleanup
+### Manual Backup
 
-The script uses a `trap cleanup EXIT INT TERM` to ensure that a `cleanup` function is executed whenever the script exits (either successfully, due to an error, or upon receiving INT/TERM signals). This function attempts to log out of the Bitwarden CLI and securely unsets sensitive environment variables (`BW_SESSION`, `BW_CLIENTID`, `BW_CLIENTSECRET`, `BW_PASSWORD`).
+```bash
+# Setup rclone configuration (run once)
+./setup-rclone.sh
+
+# Run backup
+./scripts/backup.sh
+```
+
+Both scripts automatically load your `.env` file, so you just need to ensure it exists in the project root.
+
+### Automated with Cron
+
+Add to your crontab (`crontab -e`):
+
+```crontab
+# Daily backup at 3:00 AM
+0 3 * * * /path/to/bitwarden-backup/setup-rclone.sh && /path/to/bitwarden-backup/scripts/backup.sh >> /var/log/bitwarden_backup.log 2>&1
+```
+
+### Docker Deployment
+
+**Docker Compose (Recommended):**
+```bash
+docker-compose up --build
+```
+
+**Direct Docker Run:**
+```bash
+docker run --rm --env-file .env nikhilbadyal/bitwarden-backup
+```
+
+## Advanced Features
+
+### Change Detection
+
+The script uses SHA256 hashing to detect changes in your vault:
+- If no changes are detected across ANY remote, the backup is skipped
+- If changes are found on ANY remote, a new backup is created and uploaded to ALL remotes
+- This ensures consistency across all your storage locations
+
+### Retention Management
+
+Each remote maintains its own retention policy:
+- Configurable via `RETENTION_COUNT` (default: 240 backups)
+- Old backups are automatically pruned from each remote
+- Retention is applied independently to each storage service
+
+### Error Handling
+
+The script provides comprehensive error handling:
+- Individual remote failures don't stop the entire process
+- Detailed logging shows which remotes succeeded/failed
+- Specific exit codes for different failure scenarios
+- Automatic cleanup of temporary files
+
+## Logging and Monitoring
+
+### Exit Codes
+
+| Code | Meaning                               |
+|:-----|:--------------------------------------|
+| `0`  | Success                               |
+| `1`  | Missing required environment variable |
+| `2`  | Missing required dependency           |
+| `3`  | Backup directory issue                |
+| `4`  | Bitwarden login failed                |
+| `5`  | Bitwarden vault unlock failed         |
+| `6`  | Bitwarden data export failed          |
+| `7`  | Invalid backup file                   |
+| `8`  | Compression or encryption failed      |
+| `99` | Unexpected error during upload        |
+
+### Notifications
+
+Configure Apprise for notifications:
+
+```bash
+# Multiple notification services
+APPRISE_URLS="mailto://user@example.com tgram://bot_token/chat_id discord://webhook_id/webhook_token"
+```
 
 ## Security Considerations
 
-* **`.env` File:** The `.env` file contains highly sensitive information (Bitwarden credentials, R2 keys, encryption password). **Secure this file strictly.** Ensure only the user running the script can read it (`chmod 600 .env`). Do not store it in a publicly accessible location.
-* **Backup Directory:** The `BACKUP_DIR` contains the backup files before encryption and upload. Ensure this directory has strict permissions (`chmod 700 /path/to/backup`).
-* **Encryption Password:** The `ENCRYPTION_PASSWORD` is the sole key to decrypting your backups. Store this password securely, separate from the backup files themselves. Losing this password means losing access to your backups.
-* **R2 Bucket Security:** Configure appropriate access policies and permissions on your Cloudflare R2 bucket to restrict access.
+* **`.env` File**: Contains sensitive credentials. Set permissions to `chmod 600 .env`.
+* **Backup Directory**: Set secure permissions `chmod 700` on backup directory.
+* **Encryption Password**: Store securely and separately from backups. **Losing this password means losing access to your backups.**
+* **Rclone Configuration**: Contains cloud storage credentials. The base64 encoding is for convenience, not security.
+* **Multi-Remote Security**: Each remote should have appropriate access controls and encryption.
 
-## Exit Codes
+## Migration from R2-Only Version
 
-The `backup.sh` script uses specific exit codes to indicate the result:
+If you're upgrading from the R2-only version:
 
-* `0`: Success
-* `1`: Missing required environment variable
-* `2`: Missing required dependency (`bw`, `jq`, `gzip`, `openssl`, or `rclone`)
-* `3`: Backup directory issue (creation or permissions)
-* `4`: Bitwarden login failed
-* `5`: Bitwarden vault unlock failed
-* `6`: Bitwarden data export failed
-* `7`: Invalid backup file (empty, too small, or invalid JSON/encryption)
-* `8`: Compression or Encryption failed
-* `99`: Unexpected error during rclone upload
+1. **Keep your existing `.env`** - the new version is backward compatible
+2. **Generate rclone config**: Use `./generate-rclone-base64.sh` to create `RCLONE_CONFIG_BASE64`
+3. **Add the new variable** to your `.env` file
+4. **Optional**: Remove old R2-specific variables (they're ignored now)
+5. **Run the backup** - it will work with your existing R2 setup plus any new remotes
+
+## Troubleshooting
+
+### Common Issues
+
+**No remotes found:**
+- Ensure `RCLONE_CONFIG_BASE64` is properly set
+- Test your config: `./generate-rclone-base64.sh --test`
+
+**Upload failures:**
+- Check remote credentials and permissions
+- Verify network connectivity
+- Review rclone configuration syntax
+
+**Permission errors:**
+- Ensure scripts are executable: `chmod +x *.sh scripts/*.sh`
+- Check backup directory permissions
+
+### Getting Help
+
+1. **Check logs**: Review script output for specific error messages
+2. **Test rclone**: Use `rclone ls remote:` to test connectivity
+3. **Validate config**: Use the `--test` flag with the helper script
+4. **Check dependencies**: Ensure all required tools are installed
+
+## Contributing
+
+Contributions are welcome! Please feel free to submit pull requests or open issues for bugs and feature requests.
+
+## License
+
+This project is open source. Please check the license file for details.

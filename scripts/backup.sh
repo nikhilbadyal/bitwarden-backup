@@ -8,15 +8,49 @@
 # Exit immediately if any command in a pipeline fails.
 set -euo pipefail
 
+# --- Load Environment Variables ---
+# Get the directory where this script is located (scripts/backup.sh)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Go up one level to find .env file in project root
+PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+ENV_FILE="$PROJECT_ROOT/.env"
+
+# Source .env file if it exists
+if [ -f "$ENV_FILE" ]; then
+    echo "Loading environment variables from: $ENV_FILE" >&2
+    # Temporarily disable strict mode for sourcing .env
+    set +u
+    # Export all variables from .env file
+    set -a  # automatically export all variables
+    # shellcheck source=/dev/null
+    source "$ENV_FILE"
+    set +a  # disable automatic export
+    # Re-enable strict mode
+    set -u
+    echo "Environment variables loaded successfully." >&2
+else
+    echo "No .env file found at: $ENV_FILE" >&2
+    echo "Assuming environment variables are already set." >&2
+fi
+
 # --- Constants ---
 readonly BACKUP_DIR="${BACKUP_DIR:-/tmp/bw_backup}" # Use a temporary local directory
 readonly MIN_BACKUP_SIZE="${MIN_BACKUP_SIZE:-1}"  # 1KB minimum size check
 readonly COMPRESSION_LEVEL="${COMPRESSION_LEVEL:-9}"  # Max gzip compression
+readonly BACKUP_PATH="${BACKUP_PATH:-bitwarden-backup}" # Remote path/bucket for backups
 
-# File within the R2 bucket to store the hash of the last successful backup
-# This file will be downloaded and uploaded from the ephemeral server
-readonly R2_HASH_FILENAME=".last_bw_backup_hash.sha256"
+# Project-specific rclone config path (set by setup-rclone.sh)
+# Try to read from the persistent file first, then fall back to default
+if [ -f "${BACKUP_DIR:-/tmp/bw_backup}/.rclone_config_path" ]; then
+    # shellcheck source=/dev/null
+    source "${BACKUP_DIR:-/tmp/bw_backup}/.rclone_config_path"
+fi
+readonly PROJECT_RCLONE_CONFIG_FILE="${PROJECT_RCLONE_CONFIG_FILE:-${BACKUP_DIR}/rclone/rclone.conf}"
+
+# File within each remote to store the hash of the last successful backup
+readonly HASH_FILENAME=".last_bw_backup_hash.sha256"
 readonly APPRISE_URLS="${APPRISE_URLS:-}" # Allow empty, no notification if not set
+
 # Exit codes
 readonly EXIT_SUCCESS=0
 readonly EXIT_MISSING_VAR=1
@@ -43,6 +77,10 @@ RAW_FILE="${BACKUP_DIR}/bw_backup_${TIMESTAMP}.json"
 COMPRESSED_FILE="" # Will be set during compression/encryption
 export NODE_NO_DEPRECATION=1 # Suppress Node.js deprecation warnings from bw CLI
 changes_detected=false # Make this global so the trap can access it
+
+# Retention settings
+readonly RETENTION_COUNT="${RETENTION_COUNT:-240}" # Number of backups to keep per remote
+
 # --- Logging Function ---
 log() {
     local level=$1
@@ -97,9 +135,6 @@ cleanup() {
         rm -f "$COMPRESSED_FILE" || log WARN "Failed to remove temporary compressed/encrypted file: $COMPRESSED_FILE"
     fi
 
-    # Unset sensitive variables from the current shell environment
-    unset BW_SESSION BW_CLIENTID BW_CLIENTSECRET BW_PASSWORD ENCRYPTION_PASSWORD
-
     # Optional: Attempt to overwrite sensitive variables in memory before unsetting.
     declare -a sensitive_vars=(BW_SESSION BW_CLIENTID BW_CLIENTSECRET BW_PASSWORD ENCRYPTION_PASSWORD)
     for var in "${sensitive_vars[@]}"; do
@@ -107,6 +142,9 @@ cleanup() {
              eval "$var='$(printf "%*s" "${#${!var}}" "" | tr ' ' 'X')'"
         fi
     done
+
+    # Unset sensitive variables from the current shell environment
+    unset BW_SESSION BW_CLIENTID BW_CLIENTSECRET BW_PASSWORD ENCRYPTION_PASSWORD
 
     log INFO "Cleanup complete."
 
@@ -190,12 +228,20 @@ validate_environment() {
     log INFO "Validating environment and directory setup..."
 
     # Check if required variables are non-empty
-    for var in BW_CLIENTID BW_CLIENTSECRET BW_PASSWORD ENCRYPTION_PASSWORD RCLONE_R2_REMOTE_NAME RCLONE_R2_BUCKET_NAME; do
+    for var in BW_CLIENTID BW_CLIENTSECRET BW_PASSWORD ENCRYPTION_PASSWORD; do
         if [ -z "${!var:-}" ]; then
             log ERROR "Missing or empty required variable: $var. Please set it."
             exit "$EXIT_MISSING_VAR"
         fi
     done
+
+    # Check if rclone config is available
+    if [ -z "${RCLONE_CONFIG_BASE64:-}" ] && [ ! -f "$PROJECT_RCLONE_CONFIG_FILE" ]; then
+        log ERROR "Neither RCLONE_CONFIG_BASE64 nor PROJECT_RCLONE_CONFIG_FILE is available."
+        log ERROR "Please run setup-rclone.sh first or provide RCLONE_CONFIG_BASE64."
+        exit "$EXIT_MISSING_VAR"
+    fi
+
     log INFO "Required environment variables are set."
 
     # Create backup directory if it doesn't exist (it won't on ephemeral)
@@ -219,20 +265,372 @@ validate_environment() {
     rm -f "$test_file"
     log INFO "Write permissions verified in temporary backup directory."
 
-    # Check rclone remote/bucket accessibility
-    log INFO "Checking rclone remote accessibility..."
-    if ! rclone mkdir "$RCLONE_R2_REMOTE_NAME:$RCLONE_R2_BUCKET_NAME/" 2>&1; then
-        log ERROR "Could not access rclone remote '$RCLONE_R2_REMOTE_NAME:$RCLONE_R2_BUCKET_NAME/'. Uploads/Hash check will fail."
+    # Verify rclone config file exists
+    if [ ! -f "$PROJECT_RCLONE_CONFIG_FILE" ]; then
+        log ERROR "Project rclone config file not found: $PROJECT_RCLONE_CONFIG_FILE"
+        log ERROR "Please run setup-rclone.sh first."
+        exit "$EXIT_MISSING_VAR"
+    fi
+
+    # Check rclone config and remotes accessibility
+    log INFO "Checking rclone configuration and remote accessibility..."
+    local available_remotes
+    available_remotes=$(get_available_remotes)
+    if [ -z "$available_remotes" ]; then
+        log ERROR "No remotes found in rclone configuration."
         exit "$EXIT_UNEXPECTED"
     fi
-    log SUCCESS "Rclone remote accessible."
+
+    local remote_count
+    remote_count=$(echo "$available_remotes" | wc -l | tr -d ' ')
+    log SUCCESS "Found $remote_count remote(s) in configuration."
+
+    # Test accessibility of each remote
+    echo "$available_remotes" | while IFS= read -r remote; do
+        if [ -n "$remote" ]; then
+            log INFO "Testing remote: $remote"
+            if ! test_remote_accessibility "$remote"; then
+                log WARN "Remote '$remote' accessibility test failed. Backups may fail for this remote."
+            else
+                log DEBUG "Remote '$remote' is accessible."
+            fi
+        fi
+    done
+}
+
+# --- Multi-Remote Helper Functions ---
+
+# Get list of available remotes from rclone config
+get_available_remotes() {
+    if [ ! -f "$PROJECT_RCLONE_CONFIG_FILE" ]; then
+        echo ""
+        return 1
+    fi
+
+    # Extract remote names from the config file (lines starting with [remote_name])
+    grep -E '^\[.*\]$' "$PROJECT_RCLONE_CONFIG_FILE" | sed 's/\[\(.*\)\]/\1/' | grep -v '^$' || true
+}
+
+# Test if a remote is accessible
+test_remote_accessibility() {
+    local remote="$1"
+    if [ -z "$remote" ]; then
+        return 1
+    fi
+
+    # Try to list the remote root (quietly)
+    if ! rclone --config "$PROJECT_RCLONE_CONFIG_FILE" lsd "$remote:" >/dev/null 2>&1; then
+        return 1
+    fi
+
+    # Ensure the backup path exists (create if necessary)
+    if ! rclone --config "$PROJECT_RCLONE_CONFIG_FILE" mkdir "$remote:$BACKUP_PATH" >/dev/null 2>&1; then
+        # If mkdir fails, test if path already exists
+        if ! rclone --config "$PROJECT_RCLONE_CONFIG_FILE" lsd "$remote:$BACKUP_PATH" >/dev/null 2>&1; then
+            return 1
+        fi
+    fi
+
+    return 0
+}
+
+# Get the hash of the last successful backup from a specific remote
+get_last_remote_hash() {
+    local remote="$1"
+    if [ -z "$remote" ]; then
+        echo ""
+        return 1
+    fi
+
+    log DEBUG "Retrieving last backup hash from remote: $remote"
+    local remote_hash_file="$remote:$BACKUP_PATH/$HASH_FILENAME"
+    local last_hash=""
+
+    # Use rclone cat to read the file directly
+    if last_hash=$(rclone --config "$PROJECT_RCLONE_CONFIG_FILE" cat "$remote_hash_file" 2>/dev/null); then
+        # Trim whitespace and validate hash is not empty
+        last_hash=$(echo "$last_hash" | tr -d '[:space:]')
+        if [ -n "$last_hash" ]; then
+            log DEBUG "Successfully retrieved last backup hash from $remote."
+            echo "$last_hash"
+            return 0
+        else
+            log DEBUG "Hash file exists on $remote but is empty."
+            echo ""
+            return 1
+        fi
+    else
+        local rclone_exit_status=$?
+        if [ "$rclone_exit_status" -eq 1 ]; then
+            log DEBUG "Hash file not found on $remote (likely first run)."
+        else
+            log DEBUG "Failed to retrieve hash from $remote (exit status $rclone_exit_status)."
+        fi
+        echo ""
+        return 1
+    fi
+}
+
+# Save the current hash to a specific remote
+save_current_remote_hash() {
+    local remote="$1"
+    local current_hash="$2"
+
+    if [ -z "$remote" ] || [ -z "$current_hash" ]; then
+        log WARN "Cannot save hash: missing remote or hash value."
+        return 1
+    fi
+
+    local remote_hash_file="$remote:$BACKUP_PATH/$HASH_FILENAME"
+    log DEBUG "Saving current backup hash to $remote: $current_hash"
+
+    # Use rclone rcat to write the hash from stdin to the remote file
+    if echo "$current_hash" | rclone --config "$PROJECT_RCLONE_CONFIG_FILE" rcat "$remote_hash_file"; then
+        log DEBUG "Successfully saved current hash to $remote."
+        return 0
+    else
+        log ERROR "Failed to save current hash to $remote: $remote_hash_file"
+        return 1
+    fi
+}
+
+# Upload backup to a specific remote
+upload_backup_to_remote() {
+    local remote="$1"
+    if [ -z "$remote" ]; then
+        log ERROR "No remote specified for upload."
+        return 1
+    fi
+
+    if [ ! -f "$COMPRESSED_FILE" ]; then
+        log ERROR "Backup file not found: $COMPRESSED_FILE. Cannot upload to $remote."
+        return 1
+    fi
+
+    log INFO "Uploading backup to remote: $remote"
+    local backup_filename
+    backup_filename=$(basename "$COMPRESSED_FILE")
+
+    # Use rclone copy to directory (without specifying filename) to avoid creating subdirectories
+    if rclone --config "$PROJECT_RCLONE_CONFIG_FILE" --stats-one-line -v copy "$COMPRESSED_FILE" "$remote:$BACKUP_PATH/"; then
+        log SUCCESS "Backup uploaded successfully to remote: $remote as $BACKUP_PATH/$backup_filename"
+        return 0
+    else
+        log ERROR "Failed to upload backup to remote: $remote"
+        return 1
+    fi
+}
+
+# Prune old backups from a specific remote
+prune_old_backups_from_remote() {
+    local remote="$1"
+    if [ -z "$remote" ]; then
+        log ERROR "No remote specified for pruning."
+        return 1
+    fi
+
+    log INFO "Pruning old backups from remote: $remote"
+
+    local backups_to_keep="$RETENTION_COUNT"
+    if [ "$backups_to_keep" -lt 1 ]; then
+        log WARN "RETENTION_COUNT is less than 1 ($backups_to_keep). Skipping pruning for $remote."
+        return 0
+    fi
+
+    log DEBUG "Retention policy for $remote: Keeping last $backups_to_keep backup files ending in .enc"
+
+    local backup_list_json
+    if ! backup_list_json=$(rclone --config "$PROJECT_RCLONE_CONFIG_FILE" lsjson --no-modtime "$remote:$BACKUP_PATH/" 2>/dev/null); then
+        log ERROR "Failed to list files on remote $remote for pruning."
+        return 1
+    fi
+
+    # Use jq to filter for .enc files, sort by Name, reverse sort, and extract Name
+    local backup_names_sorted_newest_first
+    backup_names_sorted_newest_first=$(echo "$backup_list_json" | \
+        jq -r '.[] | select(.Name | endswith(".enc")) | .Name' | sort -r)
+
+    if [ -z "$backup_names_sorted_newest_first" ]; then
+        log INFO "No backup files found on $remote for pruning."
+        return 0
+    fi
+
+    local total_backups
+    total_backups=$(echo "$backup_names_sorted_newest_first" | wc -l | tr -d ' ')
+    log DEBUG "Found $total_backups backup files ending in .enc on $remote."
+
+    if [ "$total_backups" -le "$backups_to_keep" ]; then
+        log DEBUG "Total backups ($total_backups) on $remote is within retention count ($backups_to_keep). No pruning needed."
+        return 0
+    fi
+
+    local files_to_delete_array=()
+    while IFS= read -r line; do
+        files_to_delete_array+=("$line")
+    done <<< "$(echo "$backup_names_sorted_newest_first" | tail -n +$((backups_to_keep + 1)))"
+
+    local files_to_delete_count=${#files_to_delete_array[@]}
+    log INFO "Identified $files_to_delete_count files to delete from $remote based on retention policy."
+
+    local success_count=0
+    local failed_deletions=()
+
+    for file in "${files_to_delete_array[@]}"; do
+        if [ -z "$file" ]; then
+            log WARN "Skipping empty filename in list during pruning on $remote."
+            continue
+        fi
+
+        log DEBUG "Attempting to delete old backup from $remote: $file"
+        if rclone --config "$PROJECT_RCLONE_CONFIG_FILE" --stats=0 delete "$remote:$BACKUP_PATH/$file" 2>/dev/null; then
+            log DEBUG "Successfully deleted from $remote: $file"
+            success_count=$((success_count + 1))
+        else
+            # Double-check if file still exists
+            if ! rclone --config "$PROJECT_RCLONE_CONFIG_FILE" ls "$remote:$BACKUP_PATH/$file" >/dev/null 2>&1; then
+                log DEBUG "File $file not found on $remote after delete attempt, assuming successful removal."
+                success_count=$((success_count + 1))
+            else
+                log ERROR "Failed to delete file $file from $remote."
+                failed_deletions+=("$file")
+            fi
+        fi
+    done
+
+    log INFO "Pruning results for $remote: Attempted $files_to_delete_count, successful $success_count."
+
+    if [ ${#failed_deletions[@]} -gt 0 ]; then
+        log ERROR "The following files could not be deleted from $remote:"
+        printf "%s\n" "${failed_deletions[@]}" >&2
+    fi
+
+    return 0
+}
+
+# Check if changes exist across all remotes (returns list of remotes needing updates)
+check_changes_across_remotes() {
+    local current_raw_hash="$1"
+    local available_remotes="$2"
+    local remotes_needing_updates=()
+
+    if [ -z "$current_raw_hash" ] || [ -z "$available_remotes" ]; then
+        log WARN "Missing parameters for change detection. Assuming all remotes need updates."
+        echo "$available_remotes"
+        return 0
+    fi
+
+    log INFO "Checking for changes across all remotes..."
+
+    while IFS= read -r remote; do
+        if [ -n "$remote" ]; then
+            local last_saved_hash
+            last_saved_hash=$(get_last_remote_hash "$remote")
+
+            if [ -z "$last_saved_hash" ]; then
+                log INFO "No previous backup hash found on $remote (first run or missing hash file)."
+                remotes_needing_updates+=("$remote")
+            elif [ "$current_raw_hash" != "$last_saved_hash" ]; then
+                log INFO "Changes detected on $remote (hash mismatch)."
+                remotes_needing_updates+=("$remote")
+            else
+                log DEBUG "No changes detected on $remote (hash match)."
+            fi
+        fi
+    done <<< "$available_remotes"
+
+    if [ ${#remotes_needing_updates[@]} -gt 0 ]; then
+        log INFO "Found ${#remotes_needing_updates[@]} remote(s) needing updates: ${remotes_needing_updates[*]}"
+        printf "%s\n" "${remotes_needing_updates[@]}"
+    else
+        log INFO "No changes detected across any remotes. No updates needed."
+        echo ""
+    fi
+}
+
+# Upload backup to specific remotes only
+upload_backup_to_specific_remotes() {
+    local remotes_needing_updates_str="$1"
+
+    if [ ! -f "$COMPRESSED_FILE" ]; then
+        log ERROR "Backup file not found: $COMPRESSED_FILE. Cannot upload."
+        exit "$EXIT_INVALID_BACKUP"
+    fi
+
+    if [ -z "$remotes_needing_updates_str" ]; then
+        log INFO "No remotes need updates. Skipping upload."
+        return 0
+    fi
+
+    log INFO "Starting selective upload to remotes needing updates..."
+    local upload_success_count=0
+    local upload_failed_remotes=()
+    local total_target_remotes=0
+
+    while IFS= read -r remote; do
+        if [ -n "$remote" ]; then
+            total_target_remotes=$((total_target_remotes + 1))
+            if upload_backup_to_remote "$remote"; then
+                upload_success_count=$((upload_success_count + 1))
+            else
+                upload_failed_remotes+=("$remote")
+            fi
+        fi
+    done <<< "$remotes_needing_updates_str"
+
+    if [ "$upload_success_count" -eq "$total_target_remotes" ]; then
+        log SUCCESS "Backup uploaded successfully to all $total_target_remotes target remotes."
+    elif [ "$upload_success_count" -gt 0 ]; then
+        log WARN "Backup uploaded to $upload_success_count out of $total_target_remotes target remotes."
+        if [ ${#upload_failed_remotes[@]} -gt 0 ]; then
+            log ERROR "Failed uploads to remotes: ${upload_failed_remotes[*]}"
+        fi
+    else
+        log ERROR "Failed to upload backup to any target remote."
+        exit "$EXIT_UNEXPECTED"
+    fi
+}
+
+# Save current hash to specific remotes only
+save_hash_to_specific_remotes() {
+    local current_hash="$1"
+    local remotes_needing_updates_str="$2"
+
+    if [ -z "$current_hash" ]; then
+        log WARN "Cannot save empty hash to remotes."
+        return 1
+    fi
+
+    if [ -z "$remotes_needing_updates_str" ]; then
+        log INFO "No remotes need hash updates. Skipping."
+        return 0
+    fi
+
+    log INFO "Saving current backup hash to updated remotes..."
+    local hash_success_count=0
+    local hash_failed_remotes=()
+
+    while IFS= read -r remote; do
+        if [ -n "$remote" ]; then
+            if save_current_remote_hash "$remote" "$current_hash"; then
+                hash_success_count=$((hash_success_count + 1))
+            else
+                hash_failed_remotes+=("$remote")
+            fi
+        fi
+    done <<< "$remotes_needing_updates_str"
+
+    if [ ${#hash_failed_remotes[@]} -gt 0 ]; then
+        log WARN "Failed to save hash to some remotes: ${hash_failed_remotes[*]}"
+    fi
+
+    return 0
 }
 
 # --- Bitwarden Operations ---
 
 bw_logout() {
     log INFO "Logging out from any existing Bitwarden session..."
-    bw logout >/dev/null 2>&1 || log WARN "Already logged out or no session."
+    bw logout >/dev/null 2>&1 || log INFO "Already logged out or no session."
 }
 
 bw_login() {
@@ -240,8 +638,12 @@ bw_login() {
     export BW_CLIENTID="${BW_CLIENTID}"
     export BW_CLIENTSECRET="${BW_CLIENTSECRET}"
     export BW_PASSWORD="${BW_PASSWORD}"
-    if ! bw login --apikey >/dev/null 2>&1; then
-        log ERROR "Failed to log into Bitwarden with API key. Check credentials."
+
+    # Capture both stdout and stderr for debugging
+    local login_output
+    if ! login_output=$(bw login --apikey 2>&1); then
+        log ERROR "Failed to log into Bitwarden with API key. Error details:"
+        log ERROR "$login_output"
         exit "$EXIT_LOGIN_FAILED"
     fi
     log SUCCESS "Successfully logged in."
@@ -283,7 +685,15 @@ export_data() {
         fi
         exit "$EXIT_EXPORT_FAILED"
     fi
-    log INFO "Exported ${RAW_FILE} ($(stat -c%s "$RAW_FILE" 2>/dev/null || echo "size unknown") bytes)"
+    # Cross-platform file size for log message
+    local export_size
+    if export_size=$(stat -c%s "$RAW_FILE" 2>/dev/null); then
+        log INFO "Exported ${RAW_FILE} ($export_size bytes)"
+    elif export_size=$(stat -f%z "$RAW_FILE" 2>/dev/null); then
+        log INFO "Exported ${RAW_FILE} ($export_size bytes)"
+    else
+        log INFO "Exported ${RAW_FILE} (size unknown bytes)"
+    fi
 }
 
 validate_export() {
@@ -295,14 +705,25 @@ validate_export() {
     log INFO "Backup file exists and is not empty."
 
     local filesize
-    if ! filesize=$(stat -c%s "$RAW_FILE" 2>/dev/null); then
-        log WARN "Could not get size of backup file '$RAW_FILE'. Skipping size check."
-    else
-        log INFO "Backup file size: $filesize bytes."
-        if [ "$filesize" -lt "$MIN_BACKUP_SIZE" ]; then
-            log WARN "Backup file size ($filesize bytes) is less than the minimum expected size ($MIN_BACKUP_SIZE bytes). This might indicate an issue."
-             exit "$EXIT_INVALID_BACKUP" # Making minimum size a hard error
+    # Cross-platform file size detection (Linux vs macOS)
+    if command -v stat >/dev/null 2>&1; then
+        # Try Linux format first, then macOS format
+        if filesize=$(stat -c%s "$RAW_FILE" 2>/dev/null); then
+            log INFO "Backup file size: $filesize bytes."
+        elif filesize=$(stat -f%z "$RAW_FILE" 2>/dev/null); then
+            log INFO "Backup file size: $filesize bytes."
+        else
+            log WARN "Could not get size of backup file '$RAW_FILE' (tried both Linux and macOS stat formats). Skipping size check."
+            filesize=""
         fi
+
+        # Validate file size if we got it
+        if [ -n "$filesize" ] && [ "$filesize" -lt "$MIN_BACKUP_SIZE" ]; then
+            log WARN "Backup file size ($filesize bytes) is less than the minimum expected size ($MIN_BACKUP_SIZE bytes). This might indicate an issue."
+            exit "$EXIT_INVALID_BACKUP" # Making minimum size a hard error
+        fi
+    else
+        log WARN "stat command not found. Skipping file size check."
     fi
 
     if ! jq empty "$RAW_FILE" >/dev/null 2>&1; then
@@ -320,59 +741,6 @@ get_local_file_hash() {
         sha256sum "$filepath" | awk '{print $1}'
     else
         echo "" # Return empty string if file doesn't exist locally
-    fi
-}
-
-# Get the hash of the last successful backup from the R2 tracking file
-get_last_remote_hash() {
-    log INFO "Attempting to retrieve last backup hash from R2..."
-    local remote_hash_file="$RCLONE_R2_REMOTE_NAME:$RCLONE_R2_BUCKET_NAME/$R2_HASH_FILENAME"
-    local last_hash=""
-
-    # Use rclone cat to read the file directly. Capture stderr to check for errors.
-    if last_hash=$(rclone cat "$remote_hash_file" 2>/dev/null); then
-        log SUCCESS "Successfully retrieved last backup hash from R2."
-        echo "$last_hash"
-    else
-        # Check if the error was "file not found" or a real error
-        # rclone cat exits with 1 if the file doesn't exist. Other errors might be different.
-        # A simple check for non-empty output from rclone cat is often sufficient if error goes to stderr
-        # Let's check the exit status explicitly
-        local rclone_exit_status=$?
-        if [ "$rclone_exit_status" -eq 0 ]; then
-             # This case is hit if rclone cat exits 0 but outputs nothing (empty file?)
-             log WARN "Remote hash file '$remote_hash_file' might be empty."
-             echo ""
-        elif [ "$rclone_exit_status" -eq 1 ]; then
-             log INFO "Remote hash file '$remote_hash_file' not found on R2 (likely first run)."
-             echo "" # Return empty string if file not found
-        else
-             log WARN "Failed to retrieve last backup hash from R2 ('rclone cat' exited with status $rclone_exit_status)."
-             echo "" # Return empty string on other errors
-        fi
-    fi
-}
-
-# Save the current hash to the R2 tracking file
-save_current_remote_hash() {
-    local current_hash="$1"
-    local remote_hash_file="$RCLONE_R2_REMOTE_NAME:$RCLONE_R2_BUCKET_NAME/$R2_HASH_FILENAME"
-
-    if [ -z "$current_hash" ]; then
-        log WARN "Attempted to save an empty hash to R2."
-        return 1 # Indicate failure
-    fi
-
-    log INFO "Saving current backup hash to R2: $remote_hash_file"
-
-    # Use rclone rcat to write the hash from stdin to the remote file.
-    # This is atomic on most backends (overwrites the file).
-    if echo "$current_hash" | rclone rcat "$remote_hash_file"; then
-        log SUCCESS "Successfully saved current hash to R2."
-        return 0 # Indicate success
-    else
-        log ERROR "Failed to save current hash to R2: $remote_hash_file"
-        return 1 # Indicate failure
     fi
 }
 
@@ -471,104 +839,6 @@ compress_backup() {
     rm -f "$RAW_FILE" || log WARN "Failed to remove raw file after compression: $RAW_FILE"
 }
 
-upload_backup() {
-    log INFO "Uploading backup to remote storage using rclone..."
-    if [ ! -f "$COMPRESSED_FILE" ]; then
-        log ERROR "Backup file not found: $COMPRESSED_FILE. Cannot upload."
-        exit "$EXIT_INVALID_BACKUP"
-    fi
-
-    log DEBUG "Running rclone copy '$COMPRESSED_FILE' '$RCLONE_R2_REMOTE_NAME:$RCLONE_R2_BUCKET_NAME/'"
-    if ! rclone --stats-one-line -v copy "$COMPRESSED_FILE" "$RCLONE_R2_REMOTE_NAME:$RCLONE_R2_BUCKET_NAME/"; then
-        log ERROR "Failed to upload backup to rclone remote '$RCLONE_R2_REMOTE_NAME:$RCLONE_R2_BUCKET_NAME/'."
-        exit "$EXIT_UNEXPECTED"
-    fi
-
-    log SUCCESS "Backup uploaded successfully to rclone remote '$RCLONE_R2_REMOTE_NAME:$RCLONE_R2_BUCKET_NAME/'."
-}
-
-prune_old_backups_r2() {
-    log INFO "Pruning old backups from R2..."
-
-    local backups_to_keep=${R2_RETENTION_COUNT:-240} # Default 240 backups (approx 8 months daily)
-    if [ "$backups_to_keep" -lt 1 ]; then
-        log WARN "R2_RETENTION_COUNT is less than 1 ($backups_to_keep). Skipping pruning."
-        return 0
-    fi
-    log INFO "Retention policy: Keeping last $backups_to_keep backup files ending in .enc"
-
-    local backup_list_json
-    if ! backup_list_json=$(rclone lsjson --no-modtime "$RCLONE_R2_REMOTE_NAME:$RCLONE_R2_BUCKET_NAME/" 2>/dev/null); then
-        log ERROR "Failed to list files on rclone remote for pruning."
-        return 1 # Indicate failure
-    fi
-
-    # Use jq to filter for .enc files, sort by Name, reverse sort, and extract Name
-    local backup_names_sorted_newest_first
-    backup_names_sorted_newest_first=$(echo "$backup_list_json" | \
-        jq -r '.[] | select(.Name | endswith(".enc")) | .Name' | sort -r)
-
-    if [ -z "$backup_names_sorted_newest_first" ]; then
-        log INFO "No backup files found on R2 for pruning."
-        return 0
-    fi
-
-    local total_backups
-    total_backups=$(echo "$backup_names_sorted_newest_first" | wc -l)
-    log INFO "Found $total_backups backup files ending in .enc."
-
-    if [ "$total_backups" -le "$backups_to_keep" ]; then
-        log INFO "Total backups ($total_backups) is within the retention count ($backups_to_keep). No pruning needed."
-        return 0
-    fi
-
-    local files_to_delete_array=()
-    while IFS= read -r line; do
-        files_to_delete_array+=("$line")
-    done <<< "$(echo "$backup_names_sorted_newest_first" | tail -n +$((backups_to_keep + 1)))"
-
-    local files_to_delete_count=${#files_to_delete_array[@]}
-    log INFO "Identified $files_to_delete_count files to delete based on retention policy."
-
-    local success_count=0
-    local failed_deletions=()
-
-    for file in "${files_to_delete_array[@]}"; do
-        if [ -z "$file" ]; then
-            log WARN "Skipping empty filename in list during pruning."
-            continue
-        fi
-        log INFO "Attempting to delete old backup: $file"
-        local delete_exit_status=0
-        local delete_output
-        delete_output=$(rclone --stats=0 delete "$RCLONE_R2_REMOTE_NAME:$RCLONE_R2_BUCKET_NAME/$file" 2>&1) || delete_exit_status=$?
-
-        if [ "$delete_exit_status" -eq 0 ]; then
-            log DEBUG "Successfully deleted: $file"
-            success_count=$((success_count + 1))
-        else
-            local ls_exit_status=0
-            rclone ls "$RCLONE_R2_REMOTE_NAME:$RCLONE_R2_BUCKET_NAME/$file" >/dev/null 2>&1 || ls_exit_status=$?
-            if [ "$ls_exit_status" -ne 0 ]; then
-                 log DEBUG "File $file not found after delete attempt (ls failed), assuming successful removal."
-                 success_count=$((success_count + 1))
-            else
-                 log ERROR "Failed to delete file $file. rclone output: $delete_output"
-                 failed_deletions+=("$file")
-            fi
-        fi
-    done
-
-    log SUCCESS "Attempted to delete $files_to_delete_count files. Successfully confirmed $success_count removals (deleted or already gone)."
-
-    if [ ${#failed_deletions[@]} -gt 0 ]; then
-        log ERROR "The following files could not be deleted and still exist on R2:"
-        printf "%s\n" "${failed_deletions[@]}" >&2
-    fi
-
-    return 0
-}
-
 # --- Notification Function (requires 'apprise' command) ---
 # shellcheck disable=SC2317
 send_notification() {
@@ -624,9 +894,49 @@ send_notification() {
     return 0 # Always return 0 so notification failure doesn't kill the script
 }
 
+# Prune old backups from all remotes
+prune_old_backups_from_all_remotes() {
+    log INFO "Pruning old backups from all remotes..."
+
+    local available_remotes
+    available_remotes=$(get_available_remotes)
+    if [ -z "$available_remotes" ]; then
+        log WARN "No remotes found for pruning."
+        return 0
+    fi
+
+    local total_remotes
+    total_remotes=$(echo "$available_remotes" | wc -l | tr -d ' ')
+    log INFO "Starting pruning process for $total_remotes remotes..."
+
+    local prune_success_count=0
+    local prune_failed_remotes=()
+
+    while IFS= read -r remote; do
+        if [ -n "$remote" ]; then
+            if prune_old_backups_from_remote "$remote"; then
+                prune_success_count=$((prune_success_count + 1))
+            else
+                prune_failed_remotes+=("$remote")
+            fi
+        fi
+    done <<< "$available_remotes"
+
+    if [ "$prune_success_count" -eq "$total_remotes" ]; then
+        log SUCCESS "Pruning completed successfully on all $total_remotes remotes."
+    else
+        log WARN "Pruning completed on $prune_success_count out of $total_remotes remotes."
+        if [ ${#prune_failed_remotes[@]} -gt 0 ]; then
+            log ERROR "Pruning failed on remotes: ${prune_failed_remotes[*]}"
+        fi
+    fi
+
+    return 0
+}
+
 # --- Main Execution ---
 main() {
-    log INFO "Starting Bitwarden backup process..."
+    log INFO "Starting Bitwarden backup process with multi-remote support..."
 
     # Perform initial steps regardless of changes
     bw_logout
@@ -642,48 +952,58 @@ main() {
     current_raw_hash=$(get_local_file_hash "$RAW_FILE")
     log DEBUG "Current raw export hash: $current_raw_hash"
 
-    # Get hash of the last uploaded backup from R2
-    local last_saved_hash
-    last_saved_hash=$(get_last_remote_hash)
-    log DEBUG "Last saved hash from R2: ${last_saved_hash:-'None found'}"
-
-    local changes_detected=false
-
-    # Compare hashes
-    if [ -z "$last_saved_hash" ]; then
-        log INFO "No previous backup hash found in R2. Assuming first run or state file missing. Proceeding with backup and upload."
-        changes_detected=true
-    elif [ "$current_raw_hash" != "$last_saved_hash" ]; then
-        log INFO "Changes detected in vault data (hash mismatch). Proceeding with backup and upload."
-        changes_detected=true
-    else
-        log INFO "No changes detected in vault data since last successful backup (hash match). Skipping compression, encryption, and upload."
-        changes_detected=false
+    # Get available remotes
+    local available_remotes
+    available_remotes=$(get_available_remotes)
+    if [ -z "$available_remotes" ]; then
+        log ERROR "No remotes found in configuration. Cannot proceed."
+        exit "$EXIT_UNEXPECTED"
     fi
 
-    if [ "$changes_detected" = true ]; then
+    local remote_count
+    remote_count=$(echo "$available_remotes" | wc -l | tr -d ' ')
+    log INFO "Found $remote_count configured remote(s) for backup operations."
+
+    # Check for changes across all remotes
+    local changes_result
+    changes_result=$(check_changes_across_remotes "$current_raw_hash" "$available_remotes")
+
+    if [ -n "$changes_result" ]; then
+        changes_detected=true
+        local remotes_needing_updates_count
+        remotes_needing_updates_count=$(echo "$changes_result" | wc -l | tr -d ' ')
+        log INFO "Found $remotes_needing_updates_count remote(s) needing updates. Proceeding with selective backup."
+
         # Proceed with compression, encryption, and upload
         compress_backup # Creates temp .gz file
         encrypt_backup  # Encrypts temp .gz, creates temp .enc, removes .gz, updates COMPRESSED_FILE
         encrypt_verify  # Verifies temp .enc, renames to final .enc, updates COMPRESSED_FILE, sets permissions
-        upload_backup   # Uploads the final .enc file
 
-        # If upload was successful, save the hash of the raw data to R2
-        save_current_remote_hash "$current_raw_hash" || log WARN "Failed to save the new hash to R2 after successful backup upload."
+        # Upload to specific remotes only
+        upload_backup_to_specific_remotes "$changes_result"
+
+        # If upload was successful, save the hash of the raw data to updated remotes only
+        save_hash_to_specific_remotes "$current_raw_hash" "$changes_result" || log WARN "Failed to save the new hash to some remotes after successful backup upload."
+
+    else
+        changes_detected=false
+        log INFO "No changes detected across any remotes. Skipping backup creation and upload."
     fi
 
-    # Prune old backups from R2 regardless of whether a new backup was uploaded
-    prune_old_backups_r2
+    # Prune old backups from all remotes
+    prune_old_backups_from_all_remotes
 
     log SUCCESS "Bitwarden backup process completed."
     if [ "$changes_detected" = false ]; then
-         log SUCCESS "No new backup uploaded as no changes were detected."
+         log SUCCESS "No new backup uploaded as no changes were detected across $remote_count remotes."
     else
-         # COMPRESSED_FILE might be empty if compression/encryption failed, check existence before logging name
+         # Show actual count of updated remotes instead of total remotes
+         local updated_remotes_count
+         updated_remotes_count=$(echo "$changes_result" | wc -l | tr -d ' ')
          if [ -n "$COMPRESSED_FILE" ] && [ -f "$COMPRESSED_FILE" ]; then
-            log SUCCESS "New backup file uploaded: $(basename "$COMPRESSED_FILE")"
+            log SUCCESS "New backup file uploaded to $updated_remotes_count out of $remote_count remotes: $(basename "$COMPRESSED_FILE")"
          else
-             log SUCCESS "New backup was processed and uploaded." # Less specific if COMPRESSED_FILE isn't set/exists
+             log SUCCESS "New backup was processed and uploaded to $updated_remotes_count out of $remote_count remotes."
          fi
     fi
 

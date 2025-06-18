@@ -1,7 +1,7 @@
 FROM debian:bullseye-slim
 
 # Install all dependencies in a single RUN layer
-RUN apt-get update && apt upgrade -y && \
+RUN apt-get update && apt-get upgrade -y && \
     apt-get install -y --no-install-recommends \
         ca-certificates \
         curl \
