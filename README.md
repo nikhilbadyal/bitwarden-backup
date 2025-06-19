@@ -1,61 +1,30 @@
 # Bitwarden Vault Backup Script
 
-This repository contains bash scripts for automated Bitwarden vault backups with **multi-remote cloud storage support**:
+Automated Bitwarden vault backups with **multi-remote cloud storage support**. Backup to multiple cloud services simultaneously (S3, Google Drive, Dropbox, OneDrive, Cloudflare R2, and 40+ others).
 
-1. `setup-rclone.sh`: Configures rclone from a base64-encoded configuration to support **ANY rclone-compatible storage service** (not just Cloudflare R2). This script only needs to be run *once* initially or when your configuration changes.
-2. `backup.sh`: Performs automated backup of a Bitwarden vault, validates, compresses, encrypts, and uploads to **ALL configured remotes** simultaneously.
-3. `generate-rclone-base64.sh`: Helper script to generate base64-encoded rclone configurations.
-4. `restore-backup.sh`: Decrypt and restore backup files back to plain JSON format for disaster recovery or vault migration.
+## 🚀 Quick Start (TL;DR)
 
-## Features
-
-### **Backup Features**
-
-* **Multi-Remote Support**: Backup to multiple cloud storage services simultaneously (S3, Google Drive, Dropbox, OneDrive, Cloudflare R2, and 40+ others supported by rclone).
-* **Base64 Configuration**: Accepts rclone config as base64 to avoid typing errors and enable easy deployment.
-* **Isolated Configuration**: Uses project-specific rclone config to avoid interfering with your global rclone setup.
-* Automated Bitwarden vault backup via API key.
-* **Multi-Stage Validation**: JSON validation, size checks, compression verification, and encryption testing.
-* Gzip compression of the backup file.
-* Strong encryption of the compressed backup using OpenSSL (AES-256-CBC) with a user-provided password.
-* **Encryption Verification**: Tests decryption and validates gzip format before upload.
-* Intelligent change detection to avoid unnecessary uploads when vault hasn't changed.
-* Independent retention management per remote based on configurable count.
-* **Optional Apprise notifications on success and failure.**
-* **Automatic retry logic for Bitwarden vault unlock** to handle transient network issues and API rate limiting.
-* Robust error handling and logging.
-* Secure cleanup process that logs out of Bitwarden and unsets sensitive environment variables.
-
-### **🆕 Restore Features**
-
-* **Multi-Source Restore**: Decrypt local files or download directly from any configured remote.
-* **Backup Browsing**: List and browse available backups across all your cloud storage services.
-* **Verification Pipeline**: Multi-stage validation (decryption → decompression → JSON validation).
-* **Secure Processing**: Temporary files with secure permissions and automatic cleanup.
-* **Flexible Output**: Custom output file names and locations.
-* **Download-Only Mode**: Download encrypted backups without decrypting (for manual processing).
-
-## Prerequisites
-
-* A Bitwarden account with API access enabled.
-* The `bw` CLI installed and configured for server URL if not using the default.
-* `jq` installed for JSON validation.
-* `gzip` installed for compression.
-* `openssl` installed for encryption and decryption verification.
-* `rclone` installed for cloud storage operations.
-* Access to one or more cloud storage services with rclone support.
-* `apprise` installed (if using notifications).
-* A `.env` file containing all required environment variables (see Configuration section).
-* A suitable directory for storing temporary backup files (default is `/tmp/bw_backup`).
-
-## Quick Start
-
-### ⚡ Fastest Method (No Cloning Required)
-
-If you just want to run backups immediately:
+### 1. Generate Rclone Config
 
 ```bash
-# 1. Create .env file with your credentials
+# If you have this repo cloned:
+./generate-rclone-base64.sh
+
+# Interactive mode (create new config):
+./generate-rclone-base64.sh --interactive
+
+# Test config and save to file:
+./generate-rclone-base64.sh --test --output my-config.txt
+
+# Or manually create base64 from existing rclone config:
+base64 -w 0 < ~/.config/rclone/rclone.conf
+```
+
+### 2. Minimal Configuration
+
+Create a `.env` file with these **5 required variables**:
+
+```bash
 cat > .env << EOF
 BW_CLIENTID=your_bitwarden_client_id
 BW_CLIENTSECRET=your_bitwarden_client_secret
@@ -63,61 +32,74 @@ BW_PASSWORD=your_bitwarden_master_password
 ENCRYPTION_PASSWORD=your_strong_encryption_password
 RCLONE_CONFIG_BASE64=your_base64_encoded_rclone_config
 EOF
+```
 
-# 2. Run backup directly from Docker Hub
+### 3. Run Backup
+
+**⚡ Fastest (No cloning required):**
+
+```bash
 docker run --rm --env-file .env --pull always --platform linux/amd64 nikhilbadyal/bitwarden-backup:latest
 ```
 
-### 🔧 Full Setup (Clone Repository)
-
-### 1. Generate Your Rclone Configuration
-
-**Option A: From existing rclone config**
+**Or with Docker Compose:**
 
 ```bash
-./generate-rclone-base64.sh
+git clone https://github.com/nikhilbadyal/bitwarden-backup.git
+cd bitwarden-backup
+# Copy your .env file here
+docker-compose up --build
 ```
 
-**Option B: Interactive configuration**
-
-```bash
-./generate-rclone-base64.sh --interactive
-```
-
-**Option C: Test and save to file**
-
-```bash
-./generate-rclone-base64.sh --test --output my-config.txt
-```
-
-### 2. Create Your .env File
-
-Copy `env.example` to `.env` and fill in your credentials:
-
-```bash
-cp env.example .env
-# Edit .env with your values
-```
-
-**Note:** All scripts automatically load environment variables from `.env` if the file exists in the project root. No need to manually source or export variables!
-
-### 3. Run the Backup
-
-**Using Scripts:**
+**Or with scripts:**
 
 ```bash
 ./setup-rclone.sh && ./scripts/backup.sh
 ```
 
-**Using Docker:**
+That's it! Your vault will be backed up to all configured remotes with encryption and compression.
+
+---
+
+## 📋 Detailed Documentation
+
+### What This Does
+
+This repository contains bash scripts for automated Bitwarden vault backups:
+
+1. `setup-rclone.sh`: Configures rclone from a base64-encoded configuration to support **ANY rclone-compatible storage service**
+2. `backup.sh`: Performs automated backup, validates, compresses, encrypts, and uploads to **ALL configured remotes** simultaneously
+3. `generate-rclone-base64.sh`: Helper script to generate base64-encoded rclone configurations
+4. `restore-backup.sh`: Decrypt and restore backup files back to plain JSON format
+
+### Prerequisites
+
+* A Bitwarden account with API access enabled
+* Docker installed (recommended) OR `bw`, `jq`, `gzip`, `openssl`, `rclone` CLI tools installed
+* Access to one or more cloud storage services with rclone support
+
+### Alternative Installation Methods
+
+**🔧 Full Setup (Clone Repository):**
 
 ```bash
-docker-compose up --build
+git clone https://github.com/nikhilbadyal/bitwarden-backup.git
+cd bitwarden-backup
+
+# Generate rclone config
+./generate-rclone-base64.sh
+
+# Create .env file (copy from env.example)
+cp env.example .env
+# Edit .env with your values
+
+# Run backup
+./setup-rclone.sh && ./scripts/backup.sh
 ```
 
-## Configuration (Environment Variables)
+## 🔧 Configuration
 
-### Required Variables
+### Required Environment Variables
 
 | Variable               | Description                           | Example                       |
 |:-----------------------|:--------------------------------------|:------------------------------|
@@ -127,30 +109,51 @@ docker-compose up --build
 | `ENCRYPTION_PASSWORD`  | Strong password for backup encryption | `BackupEncryption456!`        |
 | `RCLONE_CONFIG_BASE64` | Base64-encoded rclone configuration   | `W215LXMzXQp0eXBlID0gczMK...` |
 
-### Optional Variables
+### Optional Variables (Advanced)
 
-| Variable                | Description                            | Default          |
-|:------------------------|:---------------------------------------|:-----------------|
-| `BACKUP_DIR`            | Temporary directory for backup files   | `/tmp/bw_backup` |
-| `MIN_BACKUP_SIZE`       | Minimum backup size in bytes           | `1024`           |
-| `COMPRESSION_LEVEL`     | Gzip compression level (1-9)           | `9`              |
-| `RETENTION_COUN[]()T`   | Number of backups to keep per remote   | `240`            |
-| `BW_UNLOCK_RETRIES`     | Number of vault unlock attempts        | `3`              |
-| `BW_UNLOCK_RETRY_DELAY` | Seconds to wait between retry attempts | `5`              |
-| `APPRISE_URLS`          | Notification URLs (space-separated)    | None             |
+<details>
+<summary>Click to expand optional configuration</summary>
 
-### Legacy Variables (No Longer Used)
+| Variable                | Description                            | Default            |
+|:------------------------|:------doc       s   qs---------------------------------|:-------------------|
+| `BACKUP_DIR`            | Temporary directory for backup files   | `/tmp/bw_backup`   |
+| `BACKUP_PATH`           | Remote path/bucket for storing backups | `bitwarden-backup` |
+| `MIN_BACKUP_SIZE`       | Minimum backup size in bytes           | `1024`             |
+| `COMPRESSION_LEVEL`     | Gzip compression level (1-9)           | `9`                |
+| `RETENTION_COUNT`       | Number of backups to keep per remote   | `240`              |
+| `BW_UNLOCK_RETRIES`     | Number of vault unlock attempts        | `3`                |
+| `BW_UNLOCK_RETRY_DELAY` | Seconds to wait between retry attempts | `5`                |
+| `APPRISE_URLS`          | Notification URLs (space-separated)    | None               |
 
-The following R2-specific variables have been replaced by the multi-remote system:
+**Important Notes:**
+- `BACKUP_PATH`: For S3-compatible services, this becomes the bucket name. For other services, this is the folder path where backups are stored.
+- `MIN_BACKUP_SIZE`: Backups smaller than this are considered invalid and the script will exit with an error.
+- All scripts automatically load variables from `.env` file if it exists in the project root.
 
-* `RCLONE_R2_REMOTE_NAME`
-* `RCLONE_R2_BUCKET_NAME`
-* `RCLONE_R2_ENDPOINT`
-* `RCLONE_R2_ACCESS_KEY_ID`
-* `RCLONE_R2_SECRET_ACCESS_KEY`
-* `R2_RETENTION_COUNT`
+</details>
 
-## Supported Cloud Storage Services
+### 📋 What You Get (Features)
+
+**Backup Features:**
+
+* **Multi-Remote Support**: Backup to multiple cloud services simultaneously
+* **Strong Encryption**: AES-256-CBC encryption with PBKDF2 (100,000 iterations) using your password
+* **Smart Change Detection**: Only uploads when vault actually changes (SHA256 comparison)
+* **Automatic Retries**: Handles network issues and API rate limiting for Bitwarden unlock
+* **Secure Cleanup**: Logs out of Bitwarden and cleans temporary files
+* **Cross-platform**: Supports Linux and macOS (different SHA256 utilities)
+
+**Restore Features:**
+
+* **Multi-Source Restore**: Decrypt local files or download from any remote
+* **Backup Browsing**: List and browse backups across all storage services
+* **Verification Pipeline**: Multi-stage validation (decryption → decompression → JSON validation)
+
+---
+
+## 🗂️ Detailed Documentation
+
+### Supported Cloud Storage Services
 
 This backup solution supports **ALL rclone-compatible storage services**, including:
 
@@ -209,92 +212,37 @@ The backup script will automatically:
 3. Maintain separate retention policies for each
 4. Track changes independently per remote
 
-## Usage
+### Usage Examples
 
-### Manual Backup
+<details>
+<summary>Click to expand usage examples</summary>
+
+**Manual Backup (Scripts):**
 
 ```bash
-# Setup rclone configuration (run once)
-./setup-rclone.sh
-
-# Run backup
-./scripts/backup.sh
+./setup-rclone.sh && ./scripts/backup.sh
 ```
 
-Both scripts automatically load your `.env` file, so you just need to ensure it exists in the project root.
-
-### Automated with Cron
-
-Add to your crontab (`crontab -e`):
+**Automated with Cron:**
 
 ```crontab
 # Daily backup at 3:00 AM
 0 3 * * * /path/to/bitwarden-backup/setup-rclone.sh && /path/to/bitwarden-backup/scripts/backup.sh >> /var/log/bitwarden_backup.log 2>&1
 ```
 
-### Docker Deployment
-
-**Option 1: Without Cloning (Quickest)**
-
-Create a `.env` file with your credentials and run directly from Docker Hub:
-
-```bash
-# Create .env file (see Configuration section for all variables)
-echo "BW_CLIENTID=your_client_id" > .env
-echo "BW_CLIENTSECRET=your_client_secret" >> .env
-echo "BW_PASSWORD=your_master_password" >> .env
-echo "ENCRYPTION_PASSWORD=your_encryption_password" >> .env
-echo "RCLONE_CONFIG_BASE64=your_base64_config" >> .env
-
-# Run directly from Docker Hub
-docker run --rm --env-file .env --platform linux/amd64 --pull always nikhilbadyal/bitwarden-backup:latest
-```
-
-⚠️ **Note**: If you encounter base64 validation issues with the Docker Hub image, use Option 2 instead.
-
-**Option 2: Using Repository (Full Control)**
-
-**Docker Compose (Recommended):**
-
+**Docker Compose:**
 ```bash
 docker-compose up --build
 ```
 
-**Direct Docker Run:**
+**GitHub Actions Automation:**
 
-```bash
-docker run --rm --env-file .env --pull always --platform linux/amd64 nikhilbadyal/bitwarden-backup
-```
-
-### GitHub Actions Automation
-
-The repository includes pre-configured GitHub Actions workflows for automated backups:
-
-**Automated Daily Backups:**
-- Runs daily at 2:00 AM UTC via cron schedule
-- Uses your repository secrets for environment variables
-- Includes pre-commit linting checks
-- Captures and stores backup logs as artifacts
-- Manual trigger available via workflow dispatch
-
-**Setup Instructions:**
 1. Fork this repository
-2. Add your environment variables as a repository secret named `BITWARDEN_BACKUP_ENV`:
-   ```
-   BW_CLIENTID=your_bitwarden_client_id
-   BW_CLIENTSECRET=your_bitwarden_client_secret
-   BW_PASSWORD=your_bitwarden_master_password
-   ENCRYPTION_PASSWORD=your_strong_encryption_password
-   RCLONE_CONFIG_BASE64=your_base64_encoded_rclone_config
-   # Other Optional variables as needed
-   ```
-3. The workflow will automatically run daily and on manual triggers
+2. Add your environment variables as a repository secret named `BITWARDEN_BACKUP_ENV`
+3. Automatic daily backups run at 2:00 AM UTC with free GitHub infrastructure
+4. Includes pre-commit checks (shellcheck) and log artifact storage
 
-**Benefits:**
-- **Zero-maintenance backups** running on GitHub's infrastructure
-- **Free execution** (within GitHub Actions limits)
-- **Automatic logging** and artifact storage
-- **Quality checks** with pre-commit hooks before each backup
+</details>
 
 ## 🔄 Backup Restoration
 
@@ -344,32 +292,35 @@ The `restore-backup.sh` script allows you to decrypt and restore your encrypted 
 * **Delete restored files** when no longer needed
 * The same `ENCRYPTION_PASSWORD` from backups is required
 
-## Advanced Features
+### Advanced Features
 
-### Change Detection
+<details>
+<summary>Click to expand advanced features</summary>
 
-The script uses SHA256 hashing to detect changes in your vault:
+**Detailed Backup Features:**
 
-* If no changes are detected across ANY remote, the backup is skipped
-* If changes are found on ANY remote, a new backup is created and uploaded to ALL remotes
-* This ensures consistency across all your storage locations
+* **Multi-Remote Support**: Backup to multiple cloud storage services simultaneously (S3, Google Drive, Dropbox, OneDrive, Cloudflare R2, and 40+ others supported by rclone)
+* **Base64 Configuration**: Accepts rclone config as base64 to avoid typing errors and enable easy deployment
+* **Isolated Configuration**: Uses project-specific rclone config to avoid interfering with your global rclone setup
+* **Multi-Stage Validation**: JSON validation, size checks, compression verification, and encryption testing
+* **Encryption Verification**: Tests decryption and validates gzip format before upload
+* **Intelligent Change Detection**: SHA256 hashing to avoid unnecessary uploads when vault hasn't changed
+* **Independent Retention Management**: Per-remote retention policies based on configurable count
+* **Optional Apprise Notifications**: Success and failure notifications
+* **Automatic Retry Logic**: Handles transient network issues and API rate limiting for Bitwarden vault unlock
+* **Robust Error Handling**: Individual remote failures don't stop the entire process
+* **Secure Cleanup**: Logs out of Bitwarden and unsets sensitive environment variables
 
-### Retention Management
+**Detailed Restore Features:**
 
-Each remote maintains its own retention policy:
+* **Multi-Source Restore**: Decrypt local files or download directly from any configured remote
+* **Backup Browsing**: List and browse available backups across all your cloud storage services
+* **Verification Pipeline**: Multi-stage validation (decryption → decompression → JSON validation)
+* **Secure Processing**: Temporary files with secure permissions and automatic cleanup
+* **Flexible Output**: Custom output file names and locations
+* **Download-Only Mode**: Download encrypted backups without decrypting (for manual processing)
 
-* Configurable via `RETENTION_COUNT` (default: 240 backups)
-* Old backups are automatically pruned from each remote
-* Retention is applied independently to each storage service
-
-### Error Handling
-
-The script provides comprehensive error handling:
-
-* Individual remote failures don't stop the entire process
-* Detailed logging shows which remotes succeeded/failed
-* Specific exit codes for different failure scenarios
-* Automatic cleanup of temporary files
+</details>
 
 ## Logging and Monitoring
 
@@ -424,6 +375,7 @@ If you're upgrading from the R2-only version:
 There's a known issue with the Docker Hub image having stricter base64 validation than local builds. If your base64 works with local Docker Compose but fails with the Docker Hub image:
 
 **Workaround 1: Use local build instead**
+
 ```bash
 git clone https://github.com/nikhilbadyal/bitwarden-backup.git
 cd bitwarden-backup
@@ -432,6 +384,7 @@ docker-compose up --build
 ```
 
 **Workaround 2: Regenerate base64 (may help)**
+
 ```bash
 base64 -w 0 < ~/.config/rclone/rclone.conf | tr -d '\n'
 ```
