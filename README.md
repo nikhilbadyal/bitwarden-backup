@@ -49,6 +49,26 @@ This repository contains bash scripts for automated Bitwarden vault backups with
 
 ## Quick Start
 
+### ⚡ Fastest Method (No Cloning Required)
+
+If you just want to run backups immediately:
+
+```bash
+# 1. Create .env file with your credentials
+cat > .env << EOF
+BW_CLIENTID=your_bitwarden_client_id
+BW_CLIENTSECRET=your_bitwarden_client_secret
+BW_PASSWORD=your_bitwarden_master_password
+ENCRYPTION_PASSWORD=your_strong_encryption_password
+RCLONE_CONFIG_BASE64=your_base64_encoded_rclone_config
+EOF
+
+# 2. Run backup directly from Docker Hub
+docker run --rm --env-file .env nikhilbadyal/bitwarden-backup:latest
+```
+
+### 🔧 Full Setup (Clone Repository)
+
 ### 1. Generate Your Rclone Configuration
 
 **Option A: From existing rclone config**
@@ -210,6 +230,26 @@ Add to your crontab (`crontab -e`):
 ```
 
 ### Docker Deployment
+
+**Option 1: Without Cloning (Quickest)**
+
+Create a `.env` file with your credentials and run directly from Docker Hub:
+
+```bash
+# Create .env file (see Configuration section for all variables)
+echo "BW_CLIENTID=your_client_id" > .env
+echo "BW_CLIENTSECRET=your_client_secret" >> .env
+echo "BW_PASSWORD=your_master_password" >> .env
+echo "ENCRYPTION_PASSWORD=your_encryption_password" >> .env
+echo "RCLONE_CONFIG_BASE64=your_base64_config" >> .env
+
+# Run directly from Docker Hub
+docker run --rm --env-file .env nikhilbadyal/bitwarden-backup:latest
+```
+
+⚠️ **Note**: If you encounter base64 validation issues with the Docker Hub image, use Option 2 instead.
+
+**Option 2: Using Repository (Full Control)**
 
 **Docker Compose (Recommended):**
 
@@ -375,6 +415,25 @@ If you're upgrading from the R2-only version:
 ## Troubleshooting
 
 ### Common Issues
+
+**"RCLONE_CONFIG_BASE64 contains invalid base64 data" (Docker Hub image only):**
+
+There's a known issue with the Docker Hub image having stricter base64 validation than local builds. If your base64 works with local Docker Compose but fails with the Docker Hub image:
+
+**Workaround 1: Use local build instead**
+```bash
+git clone https://github.com/nikhilbadyal/bitwarden-backup.git
+cd bitwarden-backup
+# Copy your .env file here
+docker-compose up --build
+```
+
+**Workaround 2: Regenerate base64 (may help)**
+```bash
+base64 -w 0 < ~/.config/rclone/rclone.conf | tr -d '\n'
+```
+
+This issue is being investigated - the local build is currently more reliable.
 
 **No remotes found:**
 

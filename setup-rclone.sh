@@ -97,12 +97,28 @@ log SUCCESS "Project rclone config directory created: $PROJECT_RCLONE_CONFIG_DIR
 # Decode base64 config and write to project-specific location
 log INFO "Decoding and writing rclone configuration..."
 
-# First validate base64 format
-if ! echo "$RCLONE_CONFIG_BASE64" | base64 -d >/dev/null 2>&1; then
+# First validate base64 format with verbose debugging
+log INFO "DEBUG: Starting base64 validation..."
+log INFO "DEBUG: Base64 string length: ${#RCLONE_CONFIG_BASE64}"
+log INFO "DEBUG: Base64 first 50 chars: ${RCLONE_CONFIG_BASE64:0:50}..."
+log INFO "DEBUG: Base64 last 50 chars: ...${RCLONE_CONFIG_BASE64: -50}"
+log INFO "DEBUG: Base64 command: $(which base64)"
+log INFO "DEBUG: Base64 version: $(base64 --version 2>&1 | head -n1 || echo 'version unknown')"
+
+# Test base64 decoding with detailed error output
+base64_test_output=$(echo "$RCLONE_CONFIG_BASE64" | base64 -d 2>&1)
+base64_exit_code=$?
+
+log INFO "DEBUG: Base64 decode exit code: $base64_exit_code"
+if [ $base64_exit_code -ne 0 ]; then
     log ERROR "RCLONE_CONFIG_BASE64 contains invalid base64 data."
+    log ERROR "Base64 decode error: $base64_test_output"
     log ERROR "Please check your base64 encoding. You can test with: echo 'your_base64' | base64 -d"
+    log INFO "DEBUG: For comparison, try: echo '$RCLONE_CONFIG_BASE64' | base64 -d"
     exit 1
 fi
+
+log SUCCESS "DEBUG: Base64 validation passed successfully"
 
 # Decode to temporary file first for validation
 temp_config_file=$(mktemp "${PROJECT_RCLONE_CONFIG_DIR}/rclone.conf.tmp.XXXXXX")
