@@ -359,23 +359,23 @@ The final notification now includes detailed per-remote status:
 ```
 Bitwarden backup script completed successfully. New backup uploaded: bw_backup_20241218123456.json.gz.enc.
 
-Remote Status:
-  ✓ aws-s3: Success
-  ✓ google-drive: Up to date
-  ✗ dropbox-backup: Failed
-  ✓ cloudflare-r2: Success
+📊 Remote Status:
+  ✅ aws-s3: Success
+  ✅ google-drive: Up to date
+  ❌ dropbox-backup: Failed
+  ✅ cloudflare-r2: Success
 
-Summary: 2 uploaded, 1 up-to-date, 1 failed
+📋 Summary: 📤 2 uploaded, ✅ 1 up-to-date, ❌ 1 failed
 ```
 
 **No Changes Notification Example:**
 ```
 Bitwarden backup script completed successfully. No changes detected, no new backup uploaded.
 
-Remote Status:
-  ✓ aws-s3: Up to date
-  ✓ google-drive: Up to date
-  ✓ cloudflare-r2: Up to date
+🔍 Remote Status:
+  ✅ aws-s3: Up to date
+  ✅ google-drive: Up to date
+  ✅ cloudflare-r2: Up to date
 ```
 
 **Failure Notification Example:**
@@ -383,10 +383,10 @@ Remote Status:
 Bitwarden backup script failed with exit code 8.
 Reason: Compression or encryption failed. Check ENCRYPTION_PASSWORD.
 
-Remote Status at time of failure:
-  ✓ aws-s3: Success
-  ✗ google-drive: Failed
-  ? dropbox-backup: Not processed
+⚠️ Remote Status at time of failure:
+  ✅ aws-s3: Success
+  ❌ google-drive: Failed
+  ⏸️ dropbox-backup: Not processed
 ```
 
 ## Security Considerations

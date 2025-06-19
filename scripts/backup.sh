@@ -189,9 +189,12 @@ cleanup() {
              final_message="Bitwarden backup script completed successfully. No changes detected, no new backup uploaded."
              # Add remote status summary even when no changes
              if [ ${#ALL_REMOTES[@]} -gt 0 ]; then
-                 final_message+="\n\nRemote Status:"
+                 final_message+="
+
+🔍 Remote Status:"
                  for remote in "${ALL_REMOTES[@]}"; do
-                     final_message+="\n  ✓ $remote: Up to date"
+                     final_message+="
+  ✅ $remote: Up to date"
                  done
              fi
          else
@@ -205,19 +208,23 @@ cleanup() {
 
               # Add detailed remote status
               if [ ${#ALL_REMOTES[@]} -gt 0 ]; then
-                  final_message+="\n\nRemote Status:"
+                  final_message+="
+
+📊 Remote Status:"
 
                   # Show successful remotes
                   if [ ${#SUCCESSFUL_REMOTES[@]} -gt 0 ]; then
                       for remote in "${SUCCESSFUL_REMOTES[@]}"; do
-                          final_message+="\n  ✓ $remote: Success"
+                          final_message+="
+  ✅ $remote: Success"
                       done
                   fi
 
                   # Show failed remotes
                   if [ ${#FAILED_REMOTES[@]} -gt 0 ]; then
                       for remote in "${FAILED_REMOTES[@]}"; do
-                          final_message+="\n  ✗ $remote: Failed"
+                          final_message+="
+  ❌ $remote: Failed"
                       done
                   fi
 
@@ -253,11 +260,27 @@ cleanup() {
 
                   # Show up-to-date remotes
                   for remote in "${up_to_date_remotes[@]}"; do
-                      final_message+="\n  ✓ $remote: Up to date"
+                      final_message+="
+  ✅ $remote: Up to date"
                   done
 
-                  # Add summary
-                  final_message+="\n\nSummary: ${#SUCCESSFUL_REMOTES[@]} uploaded, ${#up_to_date_remotes[@]} up-to-date, ${#FAILED_REMOTES[@]} failed"
+                  # Add summary with emojis for better readability
+                  local summary=""
+                  if [ ${#SUCCESSFUL_REMOTES[@]} -gt 0 ]; then
+                      summary+="📤 ${#SUCCESSFUL_REMOTES[@]} uploaded"
+                  fi
+                  if [ ${#up_to_date_remotes[@]} -gt 0 ]; then
+                      if [ -n "$summary" ]; then summary+=", "; fi
+                      summary+="✅ ${#up_to_date_remotes[@]} up-to-date"
+                  fi
+                  if [ ${#FAILED_REMOTES[@]} -gt 0 ]; then
+                      if [ -n "$summary" ]; then summary+=", "; fi
+                      summary+="❌ ${#FAILED_REMOTES[@]} failed"
+                  fi
+
+                  final_message+="
+
+📋 Summary: $summary"
               fi
          fi
          notify_level="SUCCESS"
@@ -278,19 +301,23 @@ cleanup() {
 
         # Add remote status if backup process started and remotes were initialized
         if [ ${#ALL_REMOTES[@]} -gt 0 ]; then
-            final_message+="\n\nRemote Status at time of failure:"
+            final_message+="
+
+⚠️ Remote Status at time of failure:"
 
             # Show successful remotes if any
             if [ ${#SUCCESSFUL_REMOTES[@]} -gt 0 ]; then
                 for remote in "${SUCCESSFUL_REMOTES[@]}"; do
-                    final_message+="\n  ✓ $remote: Success"
+                    final_message+="
+  ✅ $remote: Success"
                 done
             fi
 
             # Show failed remotes if any
             if [ ${#FAILED_REMOTES[@]} -gt 0 ]; then
                 for remote in "${FAILED_REMOTES[@]}"; do
-                    final_message+="\n  ✗ $remote: Failed"
+                    final_message+="
+  ❌ $remote: Failed"
                 done
             fi
 
@@ -315,7 +342,8 @@ cleanup() {
 
             # Show unprocessed remotes
             for remote in "${unprocessed_remotes[@]}"; do
-                final_message+="\n  ? $remote: Not processed"
+                final_message+="
+  ⏸️ $remote: Not processed"
             done
         fi
 
@@ -1243,6 +1271,101 @@ main() {
     # Exit with code 0 on success. The trap will pick this up.
     exit "$EXIT_SUCCESS"
 }
+
+# --- Test Notification Mode ---
+test_notification_mode() {
+    log INFO "Running notification test mode..."
+
+    # Load environment variables for notification testing
+    check_dependencies() {
+        # Only check for apprise when testing notifications
+        if [ -n "${APPRISE_URLS:-}" ]; then
+            if ! command -v "apprise" >/dev/null 2>&1; then
+                log ERROR "apprise command not found but APPRISE_URLS is set."
+                exit 1
+            fi
+        fi
+    }
+
+    check_dependencies
+
+    # Mock some remotes for testing (use your actual remotes if setup-rclone was run)
+    if [ -f "$PROJECT_RCLONE_CONFIG_FILE" ]; then
+        local available_remotes
+        available_remotes=$(get_available_remotes)
+        if [ -n "$available_remotes" ]; then
+            log INFO "Using actual configured remotes for test..."
+            while IFS= read -r remote; do
+                if [ -n "$remote" ]; then
+                    ALL_REMOTES+=("$remote")
+                fi
+            done <<< "$available_remotes"
+        fi
+    fi
+
+    # Fall back to mock remotes if no real ones configured
+    if [ ${#ALL_REMOTES[@]} -eq 0 ]; then
+        log INFO "No remotes configured, using mock remotes for test..."
+        ALL_REMOTES=("r2" "e2" "aws-s3" "google-drive")
+    fi
+
+    # Test different notification scenarios
+    case "${1:-success}" in
+        success-all)
+            log INFO "Testing SUCCESS notification (all remotes successful)..."
+            # Mock all remotes as successful
+            for remote in "${ALL_REMOTES[@]}"; do
+                SUCCESSFUL_REMOTES+=("$remote")
+            done
+            changes_detected=true
+            COMPRESSED_FILE="/tmp/bw_backup_20241218123456.json.gz.enc"
+            ;;
+        success-mixed)
+            log INFO "Testing SUCCESS notification (mixed results)..."
+            # Mock mixed results
+            SUCCESSFUL_REMOTES+=("${ALL_REMOTES[0]}")
+            if [ ${#ALL_REMOTES[@]} -gt 1 ]; then
+                SUCCESSFUL_REMOTES+=("${ALL_REMOTES[1]}")
+            fi
+            if [ ${#ALL_REMOTES[@]} -gt 2 ]; then
+                FAILED_REMOTES+=("${ALL_REMOTES[2]}")
+            fi
+            changes_detected=true
+            COMPRESSED_FILE="/tmp/bw_backup_20241218123456.json.gz.enc"
+            ;;
+        no-changes)
+            log INFO "Testing SUCCESS notification (no changes)..."
+            changes_detected=false
+            ;;
+        failure)
+            log INFO "Testing FAILURE notification..."
+            # Mock partial failure
+            if [ ${#ALL_REMOTES[@]} -gt 0 ]; then
+                SUCCESSFUL_REMOTES+=("${ALL_REMOTES[0]}")
+            fi
+            if [ ${#ALL_REMOTES[@]} -gt 1 ]; then
+                FAILED_REMOTES+=("${ALL_REMOTES[1]}")
+            fi
+            changes_detected=true
+            # Simulate failure and trigger cleanup
+            exit 8  # This will trigger the cleanup function with error code 8
+            ;;
+        *)
+            log ERROR "Unknown test type: ${1}. Use: success-all, success-mixed, no-changes, or failure"
+            exit 1
+            ;;
+    esac
+
+    # Trigger cleanup which will send the notification
+    log SUCCESS "Test notification will be sent via cleanup function..."
+    exit 0  # This will trigger cleanup with success code
+}
+
+# Check for test notification mode
+if [ "${1:-}" = "--test-notification" ]; then
+    shift  # Remove the flag
+    test_notification_mode "$@"
+fi
 
 # Execute the main function
 main
