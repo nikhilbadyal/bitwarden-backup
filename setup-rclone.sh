@@ -100,8 +100,8 @@ log INFO "Decoding and writing rclone configuration..."
 # First validate base64 format with verbose debugging
 log INFO "DEBUG: Starting base64 validation..."
 log INFO "DEBUG: Base64 string length: ${#RCLONE_CONFIG_BASE64}"
-log INFO "DEBUG: Base64 first 50 chars: ${RCLONE_CONFIG_BASE64:0:50}..."
-log INFO "DEBUG: Base64 last 50 chars: ...${RCLONE_CONFIG_BASE64: -50}"
+log INFO "DEBUG: Base64 first 2 chars: ${RCLONE_CONFIG_BASE64:0:2}..."
+log INFO "DEBUG: Base64 last 2 chars: ...${RCLONE_CONFIG_BASE64: -2}"
 log INFO "DEBUG: Base64 command: $(which base64)"
 log INFO "DEBUG: Base64 version: $(base64 --version 2>&1 | head -n1 || echo 'version unknown')"
 
