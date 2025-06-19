@@ -64,7 +64,7 @@ RCLONE_CONFIG_BASE64=your_base64_encoded_rclone_config
 EOF
 
 # 2. Run backup directly from Docker Hub
-docker run --rm --env-file .env nikhilbadyal/bitwarden-backup:latest
+docker run --rm --env-file .env --pull always --platform linux/amd64 nikhilbadyal/bitwarden-backup:latest
 ```
 
 ### 🔧 Full Setup (Clone Repository)
@@ -244,7 +244,7 @@ echo "ENCRYPTION_PASSWORD=your_encryption_password" >> .env
 echo "RCLONE_CONFIG_BASE64=your_base64_config" >> .env
 
 # Run directly from Docker Hub
-docker run --rm --env-file .env nikhilbadyal/bitwarden-backup:latest
+docker run --rm --env-file .env --platform linux/amd64 --pull always nikhilbadyal/bitwarden-backup:latest
 ```
 
 ⚠️ **Note**: If you encounter base64 validation issues with the Docker Hub image, use Option 2 instead.
@@ -260,7 +260,7 @@ docker-compose up --build
 **Direct Docker Run:**
 
 ```bash
-docker run --rm --env-file .env nikhilbadyal/bitwarden-backup
+docker run --rm --env-file .env --pull always --platform linux/amd64 nikhilbadyal/bitwarden-backup
 ```
 
 ### GitHub Actions Automation
@@ -450,6 +450,32 @@ This issue is being investigated - the local build is currently more reliable.
 
 * Ensure scripts are executable: `chmod +x *.sh scripts/*.sh`
 * Check backup directory permissions
+
+**Platform warnings (Apple Silicon/M1/M2 Macs):**
+
+If you see warnings like "The requested image's platform (linux/amd64) does not match the detected host platform (linux/arm64/v8)":
+
+```bash
+# Add --platform flag to specify architecture
+docker run --rm --env-file .env --platform linux/amd64 nikhilbadyal/bitwarden-backup:latest
+```
+
+This warning is cosmetic and doesn't affect functionality, but the flag eliminates the warning.
+
+**Using outdated Docker images:**
+
+Docker may use cached local images instead of pulling the latest from Docker Hub. To ensure you're running the most recent version:
+
+```bash
+# Option 1: Use --pull always flag (recommended)
+docker run --rm --env-file .env --pull always nikhilbadyal/bitwarden-backup:latest
+
+# Option 2: Manually pull first, then run
+docker pull nikhilbadyal/bitwarden-backup:latest
+docker run --rm --env-file .env nikhilbadyal/bitwarden-backup:latest
+```
+
+**Note**: `docker-compose` automatically handles this with `pull_policy: always` in the compose file.
 
 ### Getting Help
 
