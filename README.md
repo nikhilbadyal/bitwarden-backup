@@ -22,6 +22,7 @@ This repository contains bash scripts for automated Bitwarden vault backups with
 * Intelligent change detection to avoid unnecessary uploads when vault hasn't changed.
 * Independent retention management per remote based on configurable count.
 * **Optional Apprise notifications on success and failure.**
+* **Automatic retry logic for Bitwarden vault unlock** to handle transient network issues and API rate limiting.
 * Robust error handling and logging.
 * Secure cleanup process that logs out of Bitwarden and unsets sensitive environment variables.
 
@@ -128,13 +129,15 @@ docker-compose up --build
 
 ### Optional Variables
 
-| Variable            | Description                          | Default          |
-|:--------------------|:-------------------------------------|:-----------------|
-| `BACKUP_DIR`        | Temporary directory for backup files | `/tmp/bw_backup` |
-| `MIN_BACKUP_SIZE`   | Minimum backup size in bytes         | `1024`           |
-| `COMPRESSION_LEVEL` | Gzip compression level (1-9)         | `9`              |
-| `RETENTION_COUNT`   | Number of backups to keep per remote | `240`            |
-| `APPRISE_URLS`      | Notification URLs (space-separated)  | None             |
+| Variable                | Description                            | Default          |
+|:------------------------|:---------------------------------------|:-----------------|
+| `BACKUP_DIR`            | Temporary directory for backup files   | `/tmp/bw_backup` |
+| `MIN_BACKUP_SIZE`       | Minimum backup size in bytes           | `1024`           |
+| `COMPRESSION_LEVEL`     | Gzip compression level (1-9)           | `9`              |
+| `RETENTION_COUN[]()T`   | Number of backups to keep per remote   | `240`            |
+| `BW_UNLOCK_RETRIES`     | Number of vault unlock attempts        | `3`              |
+| `BW_UNLOCK_RETRY_DELAY` | Seconds to wait between retry attempts | `5`              |
+| `APPRISE_URLS`          | Notification URLs (space-separated)    | None             |
 
 ### Legacy Variables (No Longer Used)
 
@@ -450,6 +453,16 @@ This issue is being investigated - the local build is currently more reliable.
 
 * Ensure scripts are executable: `chmod +x *.sh scripts/*.sh`
 * Check backup directory permissions
+
+**Bitwarden unlock failures:**
+
+The script includes automatic retry logic for vault unlock failures. If you're experiencing frequent unlock issues:
+
+* **Increase retry attempts**: Set `BW_UNLOCK_RETRIES=5` (default: 3)
+* **Increase retry delay**: Set `BW_UNLOCK_RETRY_DELAY=10` (default: 5 seconds)
+* **Check network connectivity** to Bitwarden servers
+* **Verify your master password** is correct in the `BW_PASSWORD` variable
+* **Check for API rate limiting** if running frequent backups
 
 **Platform warnings (Apple Silicon/M1/M2 Macs):**
 

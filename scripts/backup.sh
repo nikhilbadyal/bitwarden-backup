@@ -685,17 +685,40 @@ bw_login() {
 bw_unlock() {
     log INFO "Unlocking vault..."
     local unlock_output
-    if ! unlock_output=$(bw unlock --raw --passwordenv BW_PASSWORD 2>&1); then
-        log ERROR "Failed to unlock vault. Check BW_PASSWORD. Output: ${unlock_output}"
-        exit "$EXIT_UNLOCK_FAILED"
-    fi
-    BW_SESSION="$unlock_output"
-    export BW_SESSION
-    if [ -z "$BW_SESSION" ]; then
-         log ERROR "Unlock command succeeded but returned an empty session token."
-         exit "$EXIT_UNLOCK_FAILED"
-    fi
-    log SUCCESS "Vault unlocked."
+    local max_attempts="${BW_UNLOCK_RETRIES:-3}"
+    local attempt=1
+    local retry_delay="${BW_UNLOCK_RETRY_DELAY:-5}"  # seconds between attempts
+
+        while [ "$attempt" -le "$max_attempts" ]; do
+        log INFO "Unlock attempt $attempt of $max_attempts..."
+
+        if unlock_output=$(bw unlock --raw --passwordenv BW_PASSWORD 2>&1); then
+            # Success - validate session token
+            if [ -n "$unlock_output" ]; then
+                BW_SESSION="$unlock_output"
+                export BW_SESSION
+                log SUCCESS "Vault unlocked successfully on attempt $attempt."
+                return 0
+            else
+                log WARN "Attempt $attempt: Unlock command succeeded but returned an empty session token."
+            fi
+        else
+            log WARN "Attempt $attempt failed. Output: ${unlock_output}"
+        fi
+
+        # If this wasn't the last attempt, wait before retrying
+        if [ "$attempt" -lt "$max_attempts" ]; then
+            log INFO "Waiting ${retry_delay} seconds before retry..."
+            sleep "$retry_delay"
+        fi
+
+        attempt=$((attempt + 1))
+    done
+
+    # All attempts failed
+    log ERROR "Failed to unlock vault after $max_attempts attempts. Check BW_PASSWORD."
+    log ERROR "Last attempt output: ${unlock_output}"
+    exit "$EXIT_UNLOCK_FAILED"
 }
 
 export_data() {
