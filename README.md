@@ -39,7 +39,9 @@ EOF
 **⚡ Fastest (No cloning required):**
 
 ```bash
-docker run --rm --env-file .env --pull always --platform linux/amd64 nikhilbadyal/bitwarden-backup:latest
+docker run --rm --env-file .env --pull always --platform linux/amd64 \
+  -e BITWARDENCLI_APPDATA_DIR=/tmp/bw_appdata \
+  nikhilbadyal/bitwarden-backup:latest
 ```
 
 **Or with Docker Compose:**
@@ -139,6 +141,7 @@ cp env.example .env
 * **Multi-Remote Support**: Backup to multiple cloud services simultaneously
 * **Strong Encryption**: AES-256-CBC encryption with PBKDF2 (100,000 iterations) using your password
 * **Smart Change Detection**: Only uploads when vault actually changes (SHA256 comparison)
+* **Detailed Notifications**: Per-remote status in final notifications (success/failed/up-to-date)
 * **Automatic Retries**: Handles network issues and API rate limiting for Bitwarden unlock
 * **Secure Cleanup**: Logs out of Bitwarden and cleans temporary files
 * **Cross-platform**: Supports Linux and macOS (different SHA256 utilities)
@@ -348,6 +351,44 @@ Configure Apprise for notifications:
 APPRISE_URLS="mailto://user@example.com tgram://bot_token/chat_id discord://webhook_id/webhook_token"
 ```
 
+**Enhanced Notification Details:**
+
+The final notification now includes detailed per-remote status:
+
+**Success Notification Example:**
+```
+Bitwarden backup script completed successfully. New backup uploaded: bw_backup_20241218123456.json.gz.enc.
+
+Remote Status:
+  ✓ aws-s3: Success
+  ✓ google-drive: Up to date
+  ✗ dropbox-backup: Failed
+  ✓ cloudflare-r2: Success
+
+Summary: 2 uploaded, 1 up-to-date, 1 failed
+```
+
+**No Changes Notification Example:**
+```
+Bitwarden backup script completed successfully. No changes detected, no new backup uploaded.
+
+Remote Status:
+  ✓ aws-s3: Up to date
+  ✓ google-drive: Up to date
+  ✓ cloudflare-r2: Up to date
+```
+
+**Failure Notification Example:**
+```
+Bitwarden backup script failed with exit code 8.
+Reason: Compression or encryption failed. Check ENCRYPTION_PASSWORD.
+
+Remote Status at time of failure:
+  ✓ aws-s3: Success
+  ✗ google-drive: Failed
+  ? dropbox-backup: Not processed
+```
+
 ## Security Considerations
 
 * **`.env` File**: Contains sensitive credentials. Set permissions to `chmod 600 .env`.
@@ -427,6 +468,16 @@ docker run --rm --env-file .env --platform linux/amd64 nikhilbadyal/bitwarden-ba
 ```
 
 This warning is cosmetic and doesn't affect functionality, but the flag eliminates the warning.
+
+**Read-only filesystem errors with Bitwarden CLI:**
+
+If you see errors like `EROFS: read-only file system, open '/home/backupuser/.config/Bitwarden CLI/data.json'`:
+
+This happens when the Docker container runs with a read-only filesystem but Bitwarden CLI needs to write configuration files. The Docker Compose file already handles this, but for manual Docker runs, add:
+
+```bash
+docker run --rm --env-file .env -e BITWARDENCLI_APPDATA_DIR=/tmp/bw_appdata nikhilbadyal/bitwarden-backup:latest
+```
 
 **Using outdated Docker images:**
 

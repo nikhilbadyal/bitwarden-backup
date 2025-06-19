@@ -99,6 +99,11 @@ COMPRESSED_FILE="" # Will be set during compression/encryption
 export NODE_NO_DEPRECATION=1 # Suppress Node.js deprecation warnings from bw CLI
 changes_detected=false # Make this global so the trap can access it
 
+# Global arrays to track remote success/failure for final notification
+declare -a SUCCESSFUL_REMOTES=()
+declare -a FAILED_REMOTES=()
+declare -a ALL_REMOTES=()
+
 # Retention settings
 readonly RETENTION_COUNT="${RETENTION_COUNT:-240}" # Number of backups to keep per remote
 
@@ -182,6 +187,13 @@ cleanup() {
          # Use the global changes_detected variable
          if [ "$changes_detected" = false ]; then
              final_message="Bitwarden backup script completed successfully. No changes detected, no new backup uploaded."
+             # Add remote status summary even when no changes
+             if [ ${#ALL_REMOTES[@]} -gt 0 ]; then
+                 final_message+="\n\nRemote Status:"
+                 for remote in "${ALL_REMOTES[@]}"; do
+                     final_message+="\n  ✓ $remote: Up to date"
+                 done
+             fi
          else
               # Use the global COMPRESSED_FILE variable
               # Check if COMPRESSED_FILE is set before trying to get basename
@@ -189,6 +201,63 @@ cleanup() {
                   final_message="Bitwarden backup script completed successfully. New backup uploaded: $(basename "$COMPRESSED_FILE")."
               else
                   final_message="Bitwarden backup script completed successfully. New backup was processed and uploaded." # Fallback message
+              fi
+
+              # Add detailed remote status
+              if [ ${#ALL_REMOTES[@]} -gt 0 ]; then
+                  final_message+="\n\nRemote Status:"
+
+                  # Show successful remotes
+                  if [ ${#SUCCESSFUL_REMOTES[@]} -gt 0 ]; then
+                      for remote in "${SUCCESSFUL_REMOTES[@]}"; do
+                          final_message+="\n  ✓ $remote: Success"
+                      done
+                  fi
+
+                  # Show failed remotes
+                  if [ ${#FAILED_REMOTES[@]} -gt 0 ]; then
+                      for remote in "${FAILED_REMOTES[@]}"; do
+                          final_message+="\n  ✗ $remote: Failed"
+                      done
+                  fi
+
+                  # Show remotes that were up to date (not in success or failed arrays)
+                  local up_to_date_remotes=()
+                  for remote in "${ALL_REMOTES[@]}"; do
+                      local found_successful=false
+                      local found_failed=false
+
+                      # Check if remote is in successful array
+                      for successful_remote in "${SUCCESSFUL_REMOTES[@]}"; do
+                          if [ "$remote" = "$successful_remote" ]; then
+                              found_successful=true
+                              break
+                          fi
+                      done
+
+                      # Check if remote is in failed array
+                      if [ "$found_successful" = false ]; then
+                          for failed_remote in "${FAILED_REMOTES[@]}"; do
+                              if [ "$remote" = "$failed_remote" ]; then
+                                  found_failed=true
+                                  break
+                              fi
+                          done
+                      fi
+
+                      # If not found in either, it was up to date
+                      if [ "$found_successful" = false ] && [ "$found_failed" = false ]; then
+                          up_to_date_remotes+=("$remote")
+                      fi
+                  done
+
+                  # Show up-to-date remotes
+                  for remote in "${up_to_date_remotes[@]}"; do
+                      final_message+="\n  ✓ $remote: Up to date"
+                  done
+
+                  # Add summary
+                  final_message+="\n\nSummary: ${#SUCCESSFUL_REMOTES[@]} uploaded, ${#up_to_date_remotes[@]} up-to-date, ${#FAILED_REMOTES[@]} failed"
               fi
          fi
          notify_level="SUCCESS"
@@ -206,6 +275,50 @@ cleanup() {
             "$EXIT_BACKUP_DIR") final_message+="\nReason: Temporary backup directory could not be created or written to." ;;
             *) final_message+="\nReason: An unexpected error occurred. Review logs." ;;
         esac
+
+        # Add remote status if backup process started and remotes were initialized
+        if [ ${#ALL_REMOTES[@]} -gt 0 ]; then
+            final_message+="\n\nRemote Status at time of failure:"
+
+            # Show successful remotes if any
+            if [ ${#SUCCESSFUL_REMOTES[@]} -gt 0 ]; then
+                for remote in "${SUCCESSFUL_REMOTES[@]}"; do
+                    final_message+="\n  ✓ $remote: Success"
+                done
+            fi
+
+            # Show failed remotes if any
+            if [ ${#FAILED_REMOTES[@]} -gt 0 ]; then
+                for remote in "${FAILED_REMOTES[@]}"; do
+                    final_message+="\n  ✗ $remote: Failed"
+                done
+            fi
+
+            # Show remotes that weren't processed yet
+            local unprocessed_remotes=()
+            for remote in "${ALL_REMOTES[@]}"; do
+                local found=false
+
+                # Check if remote is in successful or failed arrays
+                for processed_remote in "${SUCCESSFUL_REMOTES[@]}" "${FAILED_REMOTES[@]}"; do
+                    if [ "$remote" = "$processed_remote" ]; then
+                        found=true
+                        break
+                    fi
+                done
+
+                # If not found in either, it was not processed
+                if [ "$found" = false ]; then
+                    unprocessed_remotes+=("$remote")
+                fi
+            done
+
+            # Show unprocessed remotes
+            for remote in "${unprocessed_remotes[@]}"; do
+                final_message+="\n  ? $remote: Not processed"
+            done
+        fi
+
     # Add script log file location to error message if available (requires passing it or using another env var)
     # Example: final_message+="\nLogs might be available at /path/to/log/file"
          notify_level="ERROR"
@@ -604,8 +717,10 @@ upload_backup_to_specific_remotes() {
             total_target_remotes=$((total_target_remotes + 1))
             if upload_backup_to_remote "$remote"; then
                 upload_success_count=$((upload_success_count + 1))
+                SUCCESSFUL_REMOTES+=("$remote")
             else
                 upload_failed_remotes+=("$remote")
+                FAILED_REMOTES+=("$remote")
             fi
         fi
     done <<< "$remotes_needing_updates_str"
@@ -1070,6 +1185,13 @@ main() {
         log ERROR "No remotes found in configuration. Cannot proceed."
         exit "$EXIT_UNEXPECTED"
     fi
+
+    # Populate ALL_REMOTES array for final notification tracking
+    while IFS= read -r remote; do
+        if [ -n "$remote" ]; then
+            ALL_REMOTES+=("$remote")
+        fi
+    done <<< "$available_remotes"
 
     local remote_count
     remote_count=$(echo "$available_remotes" | wc -l | tr -d ' ')

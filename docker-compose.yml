@@ -9,6 +9,7 @@ services:
       - .env
     environment:
       - BACKUP_DIR=/tmp/bw_backup  # Override for Docker container
+      - BITWARDENCLI_APPDATA_DIR=/tmp/bw_appdata  # Bitwarden CLI data directory in writable tmpfs
     pull_policy: always
     restart: "no"  # Don't restart automatically for backup jobs
     security_opt:
