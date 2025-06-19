@@ -223,6 +223,36 @@ docker-compose up --build
 docker run --rm --env-file .env nikhilbadyal/bitwarden-backup
 ```
 
+### GitHub Actions Automation
+
+The repository includes pre-configured GitHub Actions workflows for automated backups:
+
+**Automated Daily Backups:**
+- Runs daily at 2:00 AM UTC via cron schedule
+- Uses your repository secrets for environment variables
+- Includes pre-commit linting checks
+- Captures and stores backup logs as artifacts
+- Manual trigger available via workflow dispatch
+
+**Setup Instructions:**
+1. Fork this repository
+2. Add your environment variables as a repository secret named `BITWARDEN_BACKUP_ENV`:
+   ```
+   BW_CLIENTID=your_bitwarden_client_id
+   BW_CLIENTSECRET=your_bitwarden_client_secret
+   BW_PASSWORD=your_bitwarden_master_password
+   ENCRYPTION_PASSWORD=your_strong_encryption_password
+   RCLONE_CONFIG_BASE64=your_base64_encoded_rclone_config
+   # Other Optional variables as needed
+   ```
+3. The workflow will automatically run daily and on manual triggers
+
+**Benefits:**
+- **Zero-maintenance backups** running on GitHub's infrastructure
+- **Free execution** (within GitHub Actions limits)
+- **Automatic logging** and artifact storage
+- **Quality checks** with pre-commit hooks before each backup
+
 ## 🔄 Backup Restoration
 
 The `restore-backup.sh` script allows you to decrypt and restore your encrypted backups back to plain JSON format.
