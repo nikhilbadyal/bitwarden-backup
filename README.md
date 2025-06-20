@@ -269,14 +269,14 @@ The `restore-backup.sh` script allows you to decrypt and restore your encrypted 
 
 ### Restore Options
 
-| Option | Description | Example |
-|:-------|:------------|:--------|
-| `-f, --file` | Decrypt local backup file | `--file backup.enc` |
-| `-r, --remote` | Download & decrypt from remote | `--remote s3-backup` |
-| `-o, --output` | Custom output filename | `--output vault.json` |
-| `-l, --list` | List backups from all remotes | `--list` |
-| `--list-remote` | List backups from specific remote | `--list-remote gdrive` |
-| `--download-only` | Download without decrypting | `--download-only` |
+| Option            | Description                       | Example                |
+|:------------------|:----------------------------------|:-----------------------|
+| `-f, --file`      | Decrypt local backup file         | `--file backup.enc`    |
+| `-r, --remote`    | Download & decrypt from remote    | `--remote s3-backup`   |
+| `-o, --output`    | Custom output filename            | `--output vault.json`  |
+| `-l, --list`      | List backups from all remotes     | `--list`               |
+| `--list-remote`   | List backups from specific remote | `--list-remote gdrive` |
+| `--download-only` | Download without decrypting       | `--download-only`      |
 
 ### Restoration Process
 
