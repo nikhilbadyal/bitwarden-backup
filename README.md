@@ -344,7 +344,7 @@ The `restore-backup.sh` script allows you to decrypt and restore your encrypted 
 
 ### Notifications
 
-Configure Apprise for notifications:
+Configure [Apprise](https://github.com/caronc/apprise) for notifications:
 
 ```bash
 # Multiple notification services
