@@ -140,6 +140,7 @@ cp env.example .env
 
 * **Multi-Remote Support**: Backup to multiple cloud services simultaneously
 * **Strong Encryption**: AES-256-CBC encryption with PBKDF2 (100,000 iterations) using your password
+* **Zero-Disk Security**: Uses secure pipe-based processing - unencrypted vault data never touches disk
 * **Smart Change Detection**: Only uploads when vault actually changes (SHA256 comparison)
 * **Detailed Notifications**: Per-remote status in final notifications (success/failed/up-to-date)
 * **Automatic Retries**: Handles network issues and API rate limiting for Bitwarden unlock

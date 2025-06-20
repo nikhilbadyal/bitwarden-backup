@@ -94,8 +94,7 @@ readonly COLOR_DEBUG="\033[0;34m"
 
 # --- Variables ---
 TIMESTAMP=$(date "+%Y%m%d%H%M%S")
-RAW_FILE="${BACKUP_DIR}/bw_backup_${TIMESTAMP}.json"
-COMPRESSED_FILE="" # Will be set during compression/encryption
+COMPRESSED_FILE="" # Will be set during secure pipe-based export
 export NODE_NO_DEPRECATION=1 # Suppress Node.js deprecation warnings from bw CLI
 changes_detected=false # Make this global so the trap can access it
 
@@ -149,11 +148,6 @@ cleanup() {
     # Attempt to log out of Bitwarden silently, ignore errors
     bw logout >/dev/null 2>&1 || true
 
-    # Remove temporary local files
-    if [ -f "$RAW_FILE" ]; then
-        log DEBUG "Removing temporary raw file: $RAW_FILE"
-        rm -f "$RAW_FILE" || log WARN "Failed to remove temporary raw file: $RAW_FILE"
-    fi
     # Remove the compressed/encrypted file if it exists, regardless of success,
     # as it's only kept temporarily for upload from this ephemeral server.
     if [ -f "$COMPRESSED_FILE" ]; then
@@ -881,65 +875,91 @@ export_data() {
         log SUCCESS "Vault sync completed successfully."
     fi
 
-    if ! echo "$BW_PASSWORD" | bw export --raw --session "$BW_SESSION" --format json > "$RAW_FILE"; then
-        log ERROR "Failed to export vault data to $RAW_FILE."
-        if [ -f "$RAW_FILE" ]; then
-            if [ -s "$RAW_FILE" ]; then
-                log ERROR "Partial export file '$RAW_FILE' might exist but the command failed."
-            else
-                log ERROR "Export command failed and created an empty file '$RAW_FILE'."
-            fi
-        else
-            log ERROR "Export command failed and did not create the file '$RAW_FILE'."
-        fi
+    # This avoids writing unencrypted data to disk
+    log INFO "Performing secure pipe-based backup (no unencrypted data written to disk)..."
+
+    local temp_encrypted_file="${BACKUP_DIR}/bw_backup_${TIMESTAMP}.json.gz.enc"
+
+    if [ -z "${ENCRYPTION_PASSWORD:-}" ]; then
+        log ERROR "ENCRYPTION_PASSWORD not set. Cannot encrypt backup."
+        exit "$EXIT_COMPRESS_FAILED"
+    fi
+
+    # Secure pipe: bw export -> gzip -> openssl encrypt -> file
+    # This ensures unencrypted data never touches the disk
+    if ! echo "$BW_PASSWORD" | bw export --raw --session "$BW_SESSION" --format json | \
+         gzip -c -"${COMPRESSION_LEVEL}" | \
+         openssl enc -aes-256-cbc -pbkdf2 -iter 100000 -salt -pass env:ENCRYPTION_PASSWORD > "$temp_encrypted_file"; then
+        log ERROR "Failed to create secure encrypted backup."
+        rm -f "$temp_encrypted_file" || true
         exit "$EXIT_EXPORT_FAILED"
     fi
-    # Cross-platform file size for log message
-    local export_size
-    if export_size=$(stat -c%s "$RAW_FILE" 2>/dev/null); then
-        log INFO "Exported ${RAW_FILE} ($export_size bytes)"
-    elif export_size=$(stat -f%z "$RAW_FILE" 2>/dev/null); then
-        log INFO "Exported ${RAW_FILE} ($export_size bytes)"
+
+    # Set secure permissions on encrypted file
+    chmod 600 "$temp_encrypted_file" || {
+        log WARN "Could not set secure permissions on encrypted backup file."
+    }
+
+    # Update global variable to point to encrypted file
+    COMPRESSED_FILE="$temp_encrypted_file"
+
+    # Get file size for logging
+    local backup_size
+    if backup_size=$(stat -c%s "$COMPRESSED_FILE" 2>/dev/null); then
+        log SUCCESS "Secure encrypted backup created: $COMPRESSED_FILE ($backup_size bytes)"
+    elif backup_size=$(stat -f%z "$COMPRESSED_FILE" 2>/dev/null); then
+        log SUCCESS "Secure encrypted backup created: $COMPRESSED_FILE ($backup_size bytes)"
     else
-        log INFO "Exported ${RAW_FILE} (size unknown bytes)"
+        log SUCCESS "Secure encrypted backup created: $COMPRESSED_FILE"
     fi
 }
 
 validate_export() {
-    log INFO "Validating the exported file..."
-    if [ ! -s "$RAW_FILE" ]; then
-        log ERROR "Backup file is empty or does not exist: $RAW_FILE"
+    log INFO "Validating the encrypted backup file..."
+
+    # Validate the encrypted file directly
+    if [ ! -s "$COMPRESSED_FILE" ]; then
+        log ERROR "Encrypted backup file is empty or does not exist: $COMPRESSED_FILE"
         exit "$EXIT_INVALID_BACKUP"
     fi
-    log INFO "Backup file exists and is not empty."
+    log INFO "Encrypted backup file exists and is not empty."
 
     local filesize
     # Cross-platform file size detection (Linux vs macOS)
     if command -v stat >/dev/null 2>&1; then
         # Try Linux format first, then macOS format
-        if filesize=$(stat -c%s "$RAW_FILE" 2>/dev/null); then
-            log INFO "Backup file size: $filesize bytes."
-        elif filesize=$(stat -f%z "$RAW_FILE" 2>/dev/null); then
-            log INFO "Backup file size: $filesize bytes."
+        if filesize=$(stat -c%s "$COMPRESSED_FILE" 2>/dev/null); then
+            log INFO "Encrypted backup file size: $filesize bytes."
+        elif filesize=$(stat -f%z "$COMPRESSED_FILE" 2>/dev/null); then
+            log INFO "Encrypted backup file size: $filesize bytes."
         else
-            log WARN "Could not get size of backup file '$RAW_FILE' (tried both Linux and macOS stat formats). Skipping size check."
+            log WARN "Could not get size of encrypted backup file '$COMPRESSED_FILE' (tried both Linux and macOS stat formats). Skipping size check."
             filesize=""
         fi
 
-        # Validate file size if we got it
-        if [ -n "$filesize" ] && [ "$filesize" -lt "$MIN_BACKUP_SIZE" ]; then
-            log WARN "Backup file size ($filesize bytes) is less than the minimum expected size ($MIN_BACKUP_SIZE bytes). This might indicate an issue."
-            exit "$EXIT_INVALID_BACKUP" # Making minimum size a hard error
+        # Validate file size if we got it (encrypted files will be larger, so adjust minimum)
+        local min_encrypted_size=$((MIN_BACKUP_SIZE + 200))  # Account for encryption overhead
+        if [ -n "$filesize" ] && [ "$filesize" -lt "$min_encrypted_size" ]; then
+            log WARN "Encrypted backup file size ($filesize bytes) is less than expected minimum size ($min_encrypted_size bytes). This might indicate an issue."
+            exit "$EXIT_INVALID_BACKUP"
         fi
     else
         log WARN "stat command not found. Skipping file size check."
     fi
 
-    if ! jq empty "$RAW_FILE" >/dev/null 2>&1; then
-        log ERROR "Backup file contains invalid JSON: $RAW_FILE"
+    # Validate that the file can be decrypted and contains valid JSON
+    log INFO "Validating encrypted backup can be decrypted and contains valid JSON..."
+
+    # Test decryption and JSON validation
+    if ! openssl enc -aes-256-cbc -d -pbkdf2 -iter 100000 -salt \
+         -in "$COMPRESSED_FILE" -pass env:ENCRYPTION_PASSWORD 2>/dev/null | \
+         gzip -dc | \
+         jq empty > /dev/null 2>&1; then
+        log ERROR "Encrypted backup file failed validation (decryption, decompression, or JSON parsing failed)"
         exit "$EXIT_INVALID_BACKUP"
     fi
-    log SUCCESS "Backup file is valid JSON."
+
+    log SUCCESS "Encrypted backup file validation passed - can be decrypted and contains valid JSON."
 }
 
 
@@ -969,108 +989,6 @@ get_local_file_hash() {
     else
         echo "" # Return empty string if file doesn't exist locally
     fi
-}
-
-# --- Compression and Encryption ---
-
-encrypt_backup() {
-    log INFO "Encrypting backup file..."
-    local temp_encrypted_file="${BACKUP_DIR}/bw_backup_${TIMESTAMP}.json.gz.enc.temp"
-
-    if [ -z "${ENCRYPTION_PASSWORD:-}" ]; then
-        log ERROR "ENCRYPTION_PASSWORD not set. Cannot encrypt backup."
-        exit "$EXIT_COMPRESS_FAILED"
-    fi
-
-    # Encrypt with AES-256-CBC and PBKDF2.
-    if ! openssl enc -aes-256-cbc -pbkdf2 -iter 100000 -salt \
-        -in "$COMPRESSED_FILE" -out "$temp_encrypted_file" \
-        -pass env:ENCRYPTION_PASSWORD; then
-        log ERROR "Failed to encrypt the backup file: $COMPRESSED_FILE"
-        rm -f "$temp_encrypted_file" || true
-        exit "$EXIT_COMPRESS_FAILED"
-    fi
-
-    if [ ! -f "$temp_encrypted_file" ]; then
-        log ERROR "Encryption process failed to create output file: $temp_encrypted_file"
-        exit "$EXIT_COMPRESS_FAILED"
-    fi
-
-    # Remove the unencrypted compressed file after successful encryption
-    rm -f "$COMPRESSED_FILE" || log WARN "Failed to remove unencrypted compressed file: $COMPRESSED_FILE"
-
-    # Update COMPRESSED_FILE variable to point to the new encrypted file
-    COMPRESSED_FILE="$temp_encrypted_file"
-
-    log SUCCESS "Backup encrypted to temporary file: $temp_encrypted_file"
-}
-
-encrypt_verify() {
-    log INFO "Verifying encrypted backup file..."
-    local encrypted_file="${COMPRESSED_FILE}"
-    if [ ! -f "$encrypted_file" ]; then
-        log ERROR "Encrypted backup file not found for verification: $encrypted_file"
-        exit "$EXIT_INVALID_BACKUP"
-    fi
-    local temp_decrypted_file # Declare the variable
-    temp_decrypted_file=$(mktemp "${BACKUP_DIR}/bw_decrypt_verify.XXXXXXXXXX.gz") # Assign the result of mktemp
-
-    # Set secure permissions immediately after creation
-    chmod 600 "$temp_decrypted_file" || {
-        log ERROR "Failed to set secure permissions on temporary file"
-        rm -f "$temp_decrypted_file" || true
-        exit "$EXIT_INVALID_BACKUP"
-    }
-
-    if ! openssl enc -aes-256-cbc -d -pbkdf2 -iter 100000 \
-            -salt -in "$encrypted_file" -pass env:ENCRYPTION_PASSWORD -out "$temp_decrypted_file" 2>/dev/null; then
-        log ERROR "Failed to decrypt encrypted backup during verification."
-        rm -f "$temp_decrypted_file" || true
-        exit "$EXIT_INVALID_BACKUP"
-    fi
-
-    log INFO "Decryption succeeded. Verifying decrypted content format..."
-    if ! gzip -t "$temp_decrypted_file" >/dev/null 2>&1; then
-        log ERROR "Decrypted backup is not valid gzip compressed data."
-        rm -f "$temp_decrypted_file" || true
-        exit "$EXIT_INVALID_BACKUP"
-    fi
-
-    log SUCCESS "Encryption verified: Decrypted content is valid gzip compressed data."
-    rm -f "$temp_decrypted_file" || log WARN "Failed to remove temporary decrypted verification file."
-
-    # Rename the temporary encrypted file to its final name after verification
-    local final_encrypted_file="${BACKUP_DIR}/bw_backup_${TIMESTAMP}.json.gz.enc"
-    if mv "$encrypted_file" "$final_encrypted_file"; then
-        COMPRESSED_FILE="$final_encrypted_file"
-        log DEBUG "Renamed temporary encrypted file to final name: $COMPRESSED_FILE"
-    else
-        log ERROR "Failed to rename temporary encrypted file to final name."
-        exit "$EXIT_UNEXPECTED"
-    fi
-
-     # Set secure permissions on the final encrypted file (rw------- for owner) - redundant for ephemeral, but good practice
-    if ! chmod 600 "$COMPRESSED_FILE"; then
-        log WARN "Could not set secure permissions (600) on backup file: $COMPRESSED_FILE"
-    fi
-    log INFO "Backup file permissions set to 600."
-}
-
-compress_backup() {
-    log INFO "Compressing backup file..."
-    local temp_compressed_file="${BACKUP_DIR}/bw_backup_${TIMESTAMP}.json.gz.temp"
-
-    if gzip -c -"${COMPRESSION_LEVEL}" "$RAW_FILE" > "$temp_compressed_file"; then
-        COMPRESSED_FILE="$temp_compressed_file"
-        log SUCCESS "Backup compressed to temporary file: $temp_compressed_file"
-    else
-        log ERROR "Failed to compress backup file: $RAW_FILE."
-        rm -f "$temp_compressed_file" || true
-        exit "$EXIT_COMPRESS_FAILED"
-    fi
-
-    # RAW_FILE is no longer needed after successful compression
-    rm -f "$RAW_FILE" || log WARN "Failed to remove raw file after compression: $RAW_FILE"
 }
 
 # --- Notification Function (requires 'apprise' command) ---
@@ -1201,10 +1119,10 @@ main() {
     export_data
     validate_export
 
-    # Calculate hash of the newly exported raw data
-    local current_raw_hash
-    current_raw_hash=$(get_local_file_hash "$RAW_FILE")
-    log DEBUG "Current raw export hash: $current_raw_hash"
+    # Calculate hash of the encrypted backup
+    local current_backup_hash
+    current_backup_hash=$(get_local_file_hash "$COMPRESSED_FILE")
+    log DEBUG "Current encrypted backup hash: $current_backup_hash"
 
     # Get available remotes
     local available_remotes
@@ -1227,7 +1145,7 @@ main() {
 
     # Check for changes across all remotes
     local changes_result
-    changes_result=$(check_changes_across_remotes "$current_raw_hash" "$available_remotes")
+    changes_result=$(check_changes_across_remotes "$current_backup_hash" "$available_remotes")
 
     if [ -n "$changes_result" ]; then
         changes_detected=true
@@ -1235,16 +1153,11 @@ main() {
         remotes_needing_updates_count=$(echo "$changes_result" | wc -l | tr -d ' ')
         log INFO "Found $remotes_needing_updates_count remote(s) needing updates. Proceeding with selective backup."
 
-        # Proceed with compression, encryption, and upload
-        compress_backup # Creates temp .gz file
-        encrypt_backup  # Encrypts temp .gz, creates temp .enc, removes .gz, updates COMPRESSED_FILE
-        encrypt_verify  # Verifies temp .enc, renames to final .enc, updates COMPRESSED_FILE, sets permissions
-
-        # Upload to specific remotes only
+        # Upload to specific remotes only (backup already created by export_data)
         upload_backup_to_specific_remotes "$changes_result"
 
-        # If upload was successful, save the hash of the raw data to updated remotes only
-        save_hash_to_specific_remotes "$current_raw_hash" "$changes_result" || log WARN "Failed to save the new hash to some remotes after successful backup upload."
+        # If upload was successful, save the hash of the encrypted backup to updated remotes only
+        save_hash_to_specific_remotes "$current_backup_hash" "$changes_result" || log WARN "Failed to save the new hash to some remotes after successful backup upload."
 
     else
         changes_detected=false
