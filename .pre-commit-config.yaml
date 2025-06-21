@@ -33,7 +33,15 @@ repos:
         args:
           - '--strict'
           - "--config=pyproject.toml"
-        additional_dependencies: []
+        additional_dependencies: [fastapi,pydantic]
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: 'v0.12.0'
+    hooks:
+      - id: ruff
+        args:
+          - "--config=pyproject.toml"
+          - "--unsafe-fixes"
 
 ci:
     autofix_commit_msg: |

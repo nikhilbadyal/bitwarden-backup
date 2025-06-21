@@ -1,5 +1,11 @@
 FROM debian:bookworm-slim
 
+# Set environment variables
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
 # Install all dependencies in a single RUN layer
 RUN apt-get update && apt-get upgrade -y && \
     apt-get install -y --no-install-recommends \
@@ -27,25 +33,38 @@ RUN apt-get update && apt-get upgrade -y && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* /root/.npm && \
     # Create non-root user for security \
-    groupadd -r backupuser && \
-    useradd -r -g backupuser -s /bin/bash backupuser && \
+    groupadd -r apiuser && \
+    useradd -r -g apiuser -s /bin/bash apiuser && \
     # Set up Bitwarden CLI config directory \
-    mkdir -p /home/backupuser/.config/Bitwarden\ CLI && \
-    chown -R backupuser:backupuser /home/backupuser/.config
+    mkdir -p /home/apiuser/.config/Bitwarden\ CLI && \
+    chown -R apiuser:apiuser /home/apiuser/.config
 
+# Set working directory
 WORKDIR /app
-COPY . .
 
-# Make scripts executable and set ownership
-RUN chmod +x setup-rclone.sh scripts/backup.sh && \
-    chown -R backupuser:backupuser /app
+# Copy requirements first for better caching
+COPY api/requirements.txt /app/requirements.txt
+
+# Install Python dependencies
+RUN pip install --no-cache-dir --break-system-packages -r requirements.txt
+
+# Copy the entire project
+COPY . /app/
+
+# Create necessary directories, make scripts executable, and set permissions
+RUN mkdir -p /app/logs && \
+    chmod +x /app/setup-rclone.sh /app/scripts/backup.sh /app/restore-backup.sh && \
+    chown -R apiuser:apiuser /app
 
 # Switch to non-root user
-USER backupuser
+USER apiuser
 
-# Health check: ensure all required commands exist
+# Expose the port
+EXPOSE 5050
+
+# Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD command -v bw >/dev/null && command -v rclone >/dev/null && command -v jq >/dev/null || exit 1
+    CMD curl -f http://localhost:5050/ || exit 1
 
-# Entrypoint: run setup and backup
-ENTRYPOINT ["bash", "-c", "./setup-rclone.sh && ./scripts/backup.sh"]
+# Command to run the application
+CMD ["uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "5050", "--reload"]
