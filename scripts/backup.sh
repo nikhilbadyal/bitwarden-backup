@@ -103,9 +103,11 @@ declare -a SUCCESSFUL_REMOTES=()
 declare -a FAILED_REMOTES=()
 declare -a ALL_REMOTES=()
 
-# Retention settings
-readonly RETENTION_COUNT="${RETENTION_COUNT:-240}" # Number of backups to keep per remote
+readonly RETENTION_COUNT="${RETENTION_COUNT:-240}"
 readonly PBKDF2_ITERATIONS="${PBKDF2_ITERATIONS:-600000}"
+readonly BITWARDEN_SYNC_TIMEOUT="${BITWARDEN_SYNC_TIMEOUT:-60}"
+readonly PARALLEL_THRESHOLD="${PARALLEL_THRESHOLD:-3}"
+readonly MAX_PARALLEL_JOBS="${MAX_PARALLEL_JOBS:-4}"
 
 # --- Logging Function ---
 log() {
@@ -869,8 +871,8 @@ export_data() {
     fi
 
     log INFO "Syncing vault data..."
-    if ! timeout 60 bw sync --session "$BW_SESSION" >/dev/null 2>&1; then
-        log WARN "Vault sync failed or timed out after 60 seconds. Proceeding with export using potentially stale local data."
+    if ! timeout "$BITWARDEN_SYNC_TIMEOUT" bw sync --session "$BW_SESSION" >/dev/null 2>&1; then
+        log WARN "Vault sync failed or timed out after $BITWARDEN_SYNC_TIMEOUT seconds. Proceeding with export using potentially stale local data."
         log WARN "Consider checking your network connection and Bitwarden server status."
     else
         log SUCCESS "Vault sync completed successfully."
@@ -1062,8 +1064,8 @@ prune_old_backups_from_all_remotes() {
     total_remotes=$(echo "$available_remotes" | wc -l | tr -d ' ')
     log INFO "Starting pruning process for $total_remotes remotes..."
 
-    # Use parallel processing if more than 3 remotes
-    if [ "$total_remotes" -gt 3 ] && command -v xargs >/dev/null 2>&1; then
+    # Use parallel processing if more than threshold remotes
+    if [ "$total_remotes" -gt "$PARALLEL_THRESHOLD" ] && command -v xargs >/dev/null 2>&1; then
         log INFO "Using parallel processing for pruning ($total_remotes remotes)..."
         local prune_success_count=0
 
@@ -1072,8 +1074,8 @@ prune_old_backups_from_all_remotes() {
         export PROJECT_RCLONE_CONFIG_FILE BACKUP_PATH RETENTION_COUNT
         export COLOR_RESET COLOR_INFO COLOR_WARN COLOR_ERROR COLOR_SUCCESS COLOR_DEBUG
 
-        # Run pruning in parallel (max 4 concurrent jobs)
-        if echo "$available_remotes" | xargs -I {} -P 4 -n 1 bash -c 'prune_old_backups_from_remote "$@"' _ {}; then
+        # Run pruning in parallel (configurable max concurrent jobs)
+        if echo "$available_remotes" | xargs -I {} -P "$MAX_PARALLEL_JOBS" -n 1 bash -c 'prune_old_backups_from_remote "$@"' _ {}; then
             log SUCCESS "Parallel pruning completed for all remotes."
         else
             log WARN "Some parallel pruning operations may have failed."

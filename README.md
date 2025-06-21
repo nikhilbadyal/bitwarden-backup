@@ -126,6 +126,9 @@ cp env.example .env
 | `BW_UNLOCK_RETRIES`     | Number of vault unlock attempts        | `3`                |
 | `BW_UNLOCK_RETRY_DELAY` | Seconds to wait between retry attempts | `5`                |
 | `PBKDF2_ITERATIONS`     | PBKDF2 iterations for encryption       | `600000`           |
+| `BITWARDEN_SYNC_TIMEOUT`| Bitwarden sync timeout in seconds      | `60`               |
+| `PARALLEL_THRESHOLD`    | Min remotes needed for parallel processing | `3`            |
+| `MAX_PARALLEL_JOBS`     | Maximum parallel jobs for pruning      | `4`                |
 | `APPRISE_URLS`          | Notification URLs (space-separated)    | None               |
 
 **Important Notes:**
