@@ -105,6 +105,7 @@ declare -a ALL_REMOTES=()
 
 # Retention settings
 readonly RETENTION_COUNT="${RETENTION_COUNT:-240}" # Number of backups to keep per remote
+readonly PBKDF2_ITERATIONS="${PBKDF2_ITERATIONS:-600000}"
 
 # --- Logging Function ---
 log() {
@@ -889,7 +890,7 @@ export_data() {
     # This ensures unencrypted data never touches the disk
     if ! echo "$BW_PASSWORD" | bw export --raw --session "$BW_SESSION" --format json | \
          gzip -c -"${COMPRESSION_LEVEL}" | \
-         openssl enc -aes-256-cbc -pbkdf2 -iter 100000 -salt -pass env:ENCRYPTION_PASSWORD > "$temp_encrypted_file"; then
+         openssl enc -aes-256-cbc -pbkdf2 -iter "$PBKDF2_ITERATIONS" -salt -pass env:ENCRYPTION_PASSWORD > "$temp_encrypted_file"; then
         log ERROR "Failed to create secure encrypted backup."
         rm -f "$temp_encrypted_file" || true
         exit "$EXIT_EXPORT_FAILED"
@@ -950,8 +951,8 @@ validate_export() {
     # Validate that the file can be decrypted and contains valid JSON
     log INFO "Validating encrypted backup can be decrypted and contains valid JSON..."
 
-    # Test decryption and JSON validation
-    if ! openssl enc -aes-256-cbc -d -pbkdf2 -iter 100000 -salt \
+    # Test decryption and JSON validation (should succeed with current iteration count)
+    if ! openssl enc -aes-256-cbc -d -pbkdf2 -iter "$PBKDF2_ITERATIONS" -salt \
          -in "$COMPRESSED_FILE" -pass env:ENCRYPTION_PASSWORD 2>/dev/null | \
          gzip -dc | \
          jq empty > /dev/null 2>&1; then

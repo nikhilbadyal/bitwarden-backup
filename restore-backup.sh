@@ -67,6 +67,7 @@ log() {
 readonly BACKUP_DIR="${BACKUP_DIR:-/tmp/bw_backup}"
 readonly PROJECT_RCLONE_CONFIG_FILE="${PROJECT_RCLONE_CONFIG_FILE:-${BACKUP_DIR}/rclone/rclone.conf}"
 readonly BACKUP_PATH="${BACKUP_PATH:-bitwarden-backup}"
+readonly PBKDF2_ITERATIONS="${PBKDF2_ITERATIONS:-600000}"
 
 # --- Usage Function ---
 print_usage() {
@@ -301,10 +302,25 @@ restore_backup() {
     }
     trap cleanup_temp_files EXIT
 
-    # Step 1: Decrypt the backup
-    if ! openssl enc -aes-256-cbc -d -pbkdf2 -iter 100000 \
-         -salt -in "$encrypted_file" -pass env:ENCRYPTION_PASSWORD -out "$temp_compressed" 2>/dev/null; then
-        log ERROR "Failed to decrypt backup file. Check your ENCRYPTION_PASSWORD."
+    # Step 1: Decrypt the backup with auto-detection of iteration count
+    # Try current setting first, then legacy hardcoded value
+    local iteration_counts=("$PBKDF2_ITERATIONS" "100000")
+    local decryption_successful=false
+
+    for iter_count in "${iteration_counts[@]}"; do
+        log DEBUG "Attempting decryption with $iter_count PBKDF2 iterations..."
+        if openssl enc -aes-256-cbc -d -pbkdf2 -iter "$iter_count" \
+           -salt -in "$encrypted_file" -pass env:ENCRYPTION_PASSWORD -out "$temp_compressed" 2>/dev/null; then
+            log INFO "Successfully decrypted backup using $iter_count PBKDF2 iterations."
+            decryption_successful=true
+            break
+        fi
+    done
+
+    if [ "$decryption_successful" = false ]; then
+        log ERROR "Failed to decrypt backup file with any known iteration count."
+        log ERROR "Tried iteration counts: ${iteration_counts[*]}"
+        log ERROR "Check your ENCRYPTION_PASSWORD or backup file integrity."
         return 1
     fi
     log SUCCESS "Backup decrypted successfully"

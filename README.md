@@ -125,11 +125,13 @@ cp env.example .env
 | `RETENTION_COUNT`       | Number of backups to keep per remote   | `240`              |
 | `BW_UNLOCK_RETRIES`     | Number of vault unlock attempts        | `3`                |
 | `BW_UNLOCK_RETRY_DELAY` | Seconds to wait between retry attempts | `5`                |
+| `PBKDF2_ITERATIONS`     | PBKDF2 iterations for encryption       | `600000`           |
 | `APPRISE_URLS`          | Notification URLs (space-separated)    | None               |
 
 **Important Notes:**
 - `BACKUP_PATH`: For S3-compatible services, this becomes the bucket name. For other services, this is the folder path where backups are stored.
 - `MIN_BACKUP_SIZE`: Backups smaller than this are considered invalid and the script will exit with an error.
+- `PBKDF2_ITERATIONS`: Changes only affect new backups. Restore script automatically detects iteration count for backward compatibility.
 - All scripts automatically load variables from `.env` file if it exists in the project root.
 
 </details>
@@ -139,7 +141,7 @@ cp env.example .env
 **Backup Features:**
 
 * **Multi-Remote Support**: Backup to multiple cloud services simultaneously
-* **Strong Encryption**: AES-256-CBC encryption with PBKDF2 (100,000 iterations) using your password
+* **Strong Encryption**: AES-256-CBC encryption with PBKDF2 (configurable, default 600,000 iterations) using your password
 * **Zero-Disk Security**: Uses secure pipe-based processing - unencrypted vault data never touches disk
 * **Smart Change Detection**: Only uploads when vault actually changes (SHA256 comparison)
 * **Detailed Notifications**: Per-remote status in final notifications (success/failed/up-to-date)
