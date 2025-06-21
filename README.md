@@ -34,6 +34,19 @@ RCLONE_CONFIG_BASE64=your_base64_encoded_rclone_config
 EOF
 ```
 
+### Optional: Organization Export Support
+
+To also backup organization vaults, add these optional variables:
+
+```bash
+# Enable organization exports
+EXPORT_ORGANIZATIONS=true
+
+# List organization IDs to export (comma-separated, no spaces)
+# Get org IDs with: bw list organizations --session $BW_SESSION
+BW_ORGANIZATION_IDS=12345678-1234-1234-1234-123456789012,87654321-4321-4321-4321-210987654321
+```
+
 ### 3. Run Backup
 
 **⚡ Fastest (No cloning required):**
@@ -110,6 +123,14 @@ cp env.example .env
 | `BW_PASSWORD`          | Your Bitwarden Master Password        | `MySecretPassword123!`        |
 | `ENCRYPTION_PASSWORD`  | Strong password for backup encryption | `BackupEncryption456!`        |
 | `RCLONE_CONFIG_BASE64` | Base64-encoded rclone configuration   | `W215LXMzXQp0eXBlID0gczMK...` |
+
+### Export Configuration Variables
+
+| Variable               | Description                                  | Default | Example                     |
+|:-----------------------|:---------------------------------------------|:--------|:----------------------------|
+| `EXPORT_PERSONAL`      | Export personal vault                        | `true`  | `true` or `false`           |
+| `EXPORT_ORGANIZATIONS` | Export organization vaults                   | `false` | `true` or `false`           |
+| `BW_ORGANIZATION_IDS`  | Organization IDs to export (comma-separated) | None    | `12345678-...,87654321-...` |
 
 ### Optional Variables (Advanced)
 
