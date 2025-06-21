@@ -116,26 +116,26 @@ cp env.example .env
 <details>
 <summary>Click to expand optional configuration</summary>
 
-| Variable                | Description                            | Default            |
-|:------------------------|:------doc       s   qs---------------------------------|:-------------------|
-| `BACKUP_DIR`            | Temporary directory for backup files   | `/tmp/bw_backup`   |
-| `BACKUP_PATH`           | Remote path/bucket for storing backups | `bitwarden-backup` |
-| `MIN_BACKUP_SIZE`       | Minimum backup size in bytes           | `1024`             |
-| `COMPRESSION_LEVEL`     | Gzip compression level (1-9)           | `9`                |
-| `RETENTION_COUNT`       | Number of backups to keep per remote   | `240`              |
-| `BW_UNLOCK_RETRIES`     | Number of vault unlock attempts        | `3`                |
-| `BW_UNLOCK_RETRY_DELAY` | Seconds to wait between retry attempts | `5`                |
-| `PBKDF2_ITERATIONS`     | PBKDF2 iterations for encryption       | `600000`           |
-| `BITWARDEN_SYNC_TIMEOUT`| Bitwarden sync timeout in seconds      | `60`               |
-| `PARALLEL_THRESHOLD`    | Min remotes needed for parallel processing | `3`            |
-| `MAX_PARALLEL_JOBS`     | Maximum parallel jobs for pruning      | `4`                |
-| `APPRISE_URLS`          | Notification URLs (space-separated)    | None               |
+| Variable                 | Description                                | Default            |
+|:-------------------------|:-------------------------------------------|:-------------------|
+| `BACKUP_DIR`             | Temporary directory for backup files       | `/tmp/bw_backup`   |
+| `BACKUP_PATH`            | Remote path/bucket for storing backups     | `bitwarden-backup` |
+| `MIN_BACKUP_SIZE`        | Minimum backup size in bytes               | `1024`             |
+| `COMPRESSION_LEVEL`      | Gzip compression level (1-9)               | `9`                |
+| `RETENTION_COUNT`        | Number of backups to keep per remote       | `240`              |
+| `BW_UNLOCK_RETRIES`      | Number of vault unlock attempts            | `3`                |
+| `BW_UNLOCK_RETRY_DELAY`  | Seconds to wait between retry attempts     | `5`                |
+| `PBKDF2_ITERATIONS`      | PBKDF2 iterations for encryption           | `600000`           |
+| `BITWARDEN_SYNC_TIMEOUT` | Bitwarden sync timeout in seconds          | `60`               |
+| `PARALLEL_THRESHOLD`     | Min remotes needed for parallel processing | `3`                |
+| `MAX_PARALLEL_JOBS`      | Maximum parallel jobs for pruning          | `4`                |
+| `APPRISE_URLS`           | Notification URLs (space-separated)        | None               |
 
 **Important Notes:**
-- `BACKUP_PATH`: For S3-compatible services, this becomes the bucket name. For other services, this is the folder path where backups are stored.
-- `MIN_BACKUP_SIZE`: Backups smaller than this are considered invalid and the script will exit with an error.
-- `PBKDF2_ITERATIONS`: Changes only affect new backups. Restore script automatically detects iteration count for backward compatibility.
-- All scripts automatically load variables from `.env` file if it exists in the project root.
+* `BACKUP_PATH`: For S3-compatible services, this becomes the bucket name. For other services, this is the folder path where backups are stored.
+* `MIN_BACKUP_SIZE`: Backups smaller than this are considered invalid and the script will exit with an error.
+* `PBKDF2_ITERATIONS`: Changes only affect new backups. Restore script automatically detects iteration count for backward compatibility.
+* All scripts automatically load variables from `.env` file if it exists in the project root.
 
 </details>
 
@@ -240,6 +240,7 @@ The backup script will automatically:
 ```
 
 **Docker Compose:**
+
 ```bash
 docker-compose up --build
 ```
@@ -362,6 +363,7 @@ APPRISE_URLS="mailto://user@example.com tgram://bot_token/chat_id discord://webh
 The final notification now includes detailed per-remote status:
 
 **Success Notification Example:**
+
 ```
 Bitwarden backup script completed successfully. New backup uploaded: bw_backup_20241218123456.json.gz.enc.
 
@@ -375,6 +377,7 @@ Bitwarden backup script completed successfully. New backup uploaded: bw_backup_2
 ```
 
 **No Changes Notification Example:**
+
 ```
 Bitwarden backup script completed successfully. No changes detected, no new backup uploaded.
 
@@ -385,6 +388,7 @@ Bitwarden backup script completed successfully. No changes detected, no new back
 ```
 
 **Failure Notification Example:**
+
 ```
 Bitwarden backup script failed with exit code 8.
 Reason: Compression or encryption failed. Check ENCRYPTION_PASSWORD.
