@@ -61,6 +61,34 @@ docker-compose up --build
 
 That's it! Your vault will be backed up to all configured remotes with encryption and compression.
 
+## 🌐 API Management Interface
+
+This project includes a **REST API** for managing your Bitwarden backups through a web interface or programmatic access.
+
+### Quick API Setup
+
+For detailed API setup instructions, Docker configuration, and usage examples, see:
+
+**📖 [API.md](API.md) - Complete API Setup Guide**
+
+**Quick Start:**
+
+```bash
+# Run the API with Docker
+./run-api.sh
+
+# Access the API
+# - API Root: http://localhost:5050/
+# - Documentation: http://localhost:5050/api/v1/docs
+```
+
+The API provides endpoints for:
+
+- 📊 System health and monitoring
+- 📁 Backup file management and listing
+- ☁️ Remote storage provider management
+- 🔍 Advanced search and filtering capabilities
+
 ---
 
 ## 📋 Detailed Documentation
@@ -110,6 +138,14 @@ cp env.example .env
 | `BW_PASSWORD`          | Your Bitwarden Master Password        | `MySecretPassword123!`        |
 | `ENCRYPTION_PASSWORD`  | Strong password for backup encryption | `BackupEncryption456!`        |
 | `RCLONE_CONFIG_BASE64` | Base64-encoded rclone configuration   | `W215LXMzXQp0eXBlID0gczMK...` |
+
+### API Configuration (Required for API service)
+
+| Variable      | Description                            | Example                    |
+|:--------------|:---------------------------------------|:---------------------------|
+| `API_TOKEN`   | Authentication token for API access    | `your_secure_api_token`    |
+| `REDIS_URL`   | Redis connection URL for caching       | `redis://localhost:6379/0` |
+| `BACKUP_PATH` | Remote path/bucket for storing backups | `bitwarden-backup`         |
 
 ### Self-Hosted Bitwarden Support
 
