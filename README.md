@@ -1,6 +1,6 @@
 # Bitwarden Vault Backup Script
 
-Automated Bitwarden vault backups with **multi-remote cloud storage support**. Backup to multiple cloud services simultaneously (S3, Google Drive, Dropbox, OneDrive, Cloudflare R2, and 40+ others).
+**Configure once, forget forever.** Automated Bitwarden vault backups with **multi-remote cloud storage support**. Set up once and enjoy hands-free daily backups to multiple cloud services simultaneously (S3, Google Drive, Dropbox, OneDrive, Cloudflare R2, and 40+ others).
 
 ## 🚀 Quick Start (TL;DR)
 
@@ -67,7 +67,7 @@ That's it! Your vault will be backed up to all configured remotes with encryptio
 
 ### What This Does
 
-This repository contains bash scripts for automated Bitwarden vault backups:
+This repository provides a **"configure once, forget forever"** solution for Bitwarden vault backups:
 
 1. `setup-rclone.sh`: Configures rclone from a base64-encoded configuration to support **ANY rclone-compatible storage service**
 2. `backup.sh`: Performs automated backup, validates, compresses, encrypts, and uploads to **ALL configured remotes** simultaneously
