@@ -100,11 +100,11 @@ log INFO "Decoding and writing rclone configuration..."
 # First validate base64 format with verbose debugging
 log INFO "DEBUG: Starting base64 validation..."
 log INFO "DEBUG: Base64 string length: ${#RCLONE_CONFIG_BASE64}"
-log INFO "DEBUG: Base64 first 2 chars: ${RCLONE_CONFIG_BASE64:0:2}..."
-log INFO "DEBUG: Base64 last 2 chars: ...${RCLONE_CONFIG_BASE64: -2}"
-log INFO "DEBUG: Base64 command: $(which base64)"
-log INFO "DEBUG: Base64 version: $(base64 --version 2>&1 | head -n1 || echo 'version unknown')"
-
+if [[ ${#RCLONE_CONFIG_BASE64} -lt 10 ]]; then
+    log ERROR "RCLONE_CONFIG_BASE64 is too short to be valid base64 data."
+    log ERROR "Please ensure you have provided a valid base64 encoded rclone configuration."
+    exit 1
+fi
 # Clean base64 string (remove surrounding quotes if present)
 CLEAN_RCLONE_CONFIG_BASE64="$RCLONE_CONFIG_BASE64"
 if [[ "$RCLONE_CONFIG_BASE64" == \"*\" ]]; then
