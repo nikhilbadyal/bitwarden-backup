@@ -2,7 +2,6 @@ services:
   bitwarden-backup:
     image: nikhilbadyal/bitwarden-backup
     container_name: bitwarden-backup
-    platform: linux/amd64
     volumes:
       - .:/app:rw
     env_file:

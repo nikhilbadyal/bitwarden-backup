@@ -16,6 +16,7 @@ jobs:
       IMAGE_TAG: ${{ github.repository }}:latest
       FILE: Dockerfile
       PUSH_DESCRIPTION: true
+      PLATFORMS: linux/amd64,linux/arm64
     secrets:
       DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
       DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}

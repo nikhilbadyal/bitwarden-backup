@@ -1,6 +1,6 @@
 # Bitwarden Vault Backup Script
 
-**Configure once, forget forever.** Automated Bitwarden vault backups with **multi-remote cloud storage support**. Set up once and enjoy hands-free daily backups to multiple cloud services simultaneously (S3, Google Drive, Dropbox, OneDrive, Cloudflare R2, and 40+ others).
+**Configure once, forget forever.** Automated Bitwarden vault backups with **multi-remote cloud storage support**. Set up once and enjoy hands-free daily backups to multiple cloud services simultaneously (S3, Google Drive, Dropbox, OneDrive, Cloudflare R2, and 40+ others). **Supports both official Bitwarden and self-hosted servers.**
 
 ## 🚀 Quick Start (TL;DR)
 
@@ -39,7 +39,7 @@ EOF
 **⚡ Fastest (No cloning required):**
 
 ```bash
-docker run --rm --env-file .env --pull always --platform linux/amd64 \
+docker run --rm --env-file .env --pull always \
   -e BITWARDENCLI_APPDATA_DIR=/tmp/bw_appdata \
   nikhilbadyal/bitwarden-backup:latest
 ```
@@ -76,7 +76,7 @@ This repository provides a **"configure once, forget forever"** solution for Bit
 
 ### Prerequisites
 
-* A Bitwarden account with API access enabled
+* A Bitwarden account with API access enabled (works with both official Bitwarden and self-hosted servers)
 * Docker installed (recommended) OR `bw`, `jq`, `gzip`, `openssl`, `rclone` CLI tools installed
 * Access to one or more cloud storage services with rclone support
 
@@ -111,6 +111,42 @@ cp env.example .env
 | `ENCRYPTION_PASSWORD`  | Strong password for backup encryption | `BackupEncryption456!`        |
 | `RCLONE_CONFIG_BASE64` | Base64-encoded rclone configuration   | `W215LXMzXQp0eXBlID0gczMK...` |
 
+### Self-Hosted Bitwarden Support
+
+This backup tool **fully supports self-hosted Bitwarden servers**! Configure your custom server using these optional environment variables:
+
+| Variable           | Description                                   | Example                         |
+|:-------------------|:----------------------------------------------|:--------------------------------|
+| `BW_SERVER`        | **Primary server URL** (recommended approach) | `https://bitwarden.example.com` |
+| `BW_WEB_VAULT`     | Custom web vault URL (advanced)               | `https://vault.example.com`     |
+| `BW_API`           | Custom API URL (advanced)                     | `https://api.example.com`       |
+| `BW_IDENTITY`      | Custom identity URL (advanced)                | `https://id.example.com`        |
+| `BW_ICONS`         | Custom icons service URL (advanced)           | `https://icons.example.com`     |
+| `BW_NOTIFICATIONS` | Custom notifications URL (advanced)           | `https://notify.example.com`    |
+| `BW_EVENTS`        | Custom events URL (advanced)                  | `https://events.example.com`    |
+| `BW_KEY_CONNECTOR` | Key Connector URL (for organizations)         | `https://keycon.example.com`    |
+
+**Quick Examples:**
+
+```bash
+# For most self-hosted installations, just set BW_SERVER:
+BW_SERVER="https://vault.mycompany.com"
+
+# For Bitwarden EU cloud:
+BW_SERVER="https://vault.bitwarden.eu"
+
+# For complex custom setups (rarely needed):
+BW_WEB_VAULT="https://vault.example.com"
+BW_API="https://api.example.com"
+BW_IDENTITY="https://identity.example.com"
+```
+
+**Important Notes:**
+* Leave these variables empty or unset to use the official Bitwarden service
+* `BW_SERVER` is the recommended approach for most self-hosted installations
+* Individual service URLs (`BW_API`, `BW_IDENTITY`, etc.) override `BW_SERVER` if both are set
+* All existing backup functionality works identically with self-hosted servers
+
 ### Optional Variables (Advanced)
 
 <details>
@@ -130,8 +166,17 @@ cp env.example .env
 | `PARALLEL_THRESHOLD`     | Min remotes needed for parallel processing | `3`                |
 | `MAX_PARALLEL_JOBS`      | Maximum parallel jobs for pruning          | `4`                |
 | `APPRISE_URLS`           | Notification URLs (space-separated)        | None               |
+| `BW_SERVER`              | Self-hosted Bitwarden server URL           | None               |
+| `BW_WEB_VAULT`           | Custom web vault URL (advanced)            | None               |
+| `BW_API`                 | Custom API URL (advanced)                  | None               |
+| `BW_IDENTITY`            | Custom identity URL (advanced)             | None               |
+| `BW_ICONS`               | Custom icons service URL (advanced)        | None               |
+| `BW_NOTIFICATIONS`       | Custom notifications URL (advanced)        | None               |
+| `BW_EVENTS`              | Custom events URL (advanced)               | None               |
+| `BW_KEY_CONNECTOR`       | Key Connector URL (for organizations)      | None               |
 
 **Important Notes:**
+
 * `BACKUP_PATH`: For S3-compatible services, this becomes the bucket name. For other services, this is the folder path where backups are stored.
 * `MIN_BACKUP_SIZE`: Backups smaller than this are considered invalid and the script will exit with an error.
 * `PBKDF2_ITERATIONS`: Changes only affect new backups. Restore script automatically detects iteration count for backward compatibility.
@@ -468,16 +513,27 @@ The script includes automatic retry logic for vault unlock failures. If you're e
 * **Verify your master password** is correct in the `BW_PASSWORD` variable
 * **Check for API rate limiting** if running frequent backups
 
-**Platform warnings (Apple Silicon/M1/M2 Macs):**
+**🎉 Universal Architecture Support:**
 
-If you see warnings like "The requested image's platform (linux/amd64) does not match the detected host platform (linux/arm64/v8)":
+The Docker image is built for **2 main architectures** and works universally:
+
+* ✅ **linux/amd64** (Intel/AMD 64-bit: Most desktops, servers, cloud instances)
+* ✅ **linux/arm64** (ARM 64-bit: Apple Silicon, Raspberry Pi 4/5, AWS Graviton)
+
+**Manual Installation (without Docker):**
+
+If running scripts directly on any system, install Bitwarden CLI via npm:
 
 ```bash
-# Add --platform flag to specify architecture
-docker run --rm --env-file .env --platform linux/amd64 nikhilbadyal/bitwarden-backup:latest
-```
+# Install Node.js and npm
+sudo apt update && sudo apt install -y nodejs npm
 
-This warning is cosmetic and doesn't affect functionality, but the flag eliminates the warning.
+# Install Bitwarden CLI globally
+sudo npm install -g @bitwarden/cli
+
+# Verify installation
+bw --version
+```
 
 **Read-only filesystem errors with Bitwarden CLI:**
 
@@ -495,11 +551,11 @@ Docker may use cached local images instead of pulling the latest from Docker Hub
 
 ```bash
 # Option 1: Use --pull always flag (recommended)
-docker run --rm --env-file .env --pull always nikhilbadyal/bitwarden-backup:latest
+docker run --rm --env-file .env -e BITWARDENCLI_APPDATA_DIR=/tmp/bw_appdata --pull always nikhilbadyal/bitwarden-backup:latest
 
 # Option 2: Manually pull first, then run
 docker pull nikhilbadyal/bitwarden-backup:latest
-docker run --rm --env-file .env nikhilbadyal/bitwarden-backup:latest
+docker run --rm --env-file .env -e BITWARDENCLI_APPDATA_DIR=/tmp/bw_appdata nikhilbadyal/bitwarden-backup:latest
 ```
 
 **Note**: `docker-compose` automatically handles this with `pull_policy: always` in the compose file.

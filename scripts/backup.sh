@@ -380,6 +380,17 @@ check_dependencies() {
         fi
     done
 
+    # Test Bitwarden CLI execution
+    if command -v bw >/dev/null 2>&1; then
+        log DEBUG "Testing Bitwarden CLI execution..."
+        if ! bw --version >/dev/null 2>&1; then
+            log ERROR "Bitwarden CLI found but cannot execute."
+            log ERROR "If installing manually, use: sudo npm install -g @bitwarden/cli"
+            exit "$EXIT_MISSING_DEP"
+        fi
+        log DEBUG "Bitwarden CLI is working correctly."
+    fi
+
     # Check for SHA256 utilities (cross-platform)
     if ! command -v sha256sum >/dev/null 2>&1 && \
        ! command -v shasum >/dev/null 2>&1 && \
@@ -801,6 +812,54 @@ save_hash_to_specific_remotes() {
 
 # --- Bitwarden Operations ---
 
+configure_bitwarden_server() {
+    log INFO "Configuring Bitwarden server settings..."
+
+    # Check if any server configuration is provided
+    if [ -n "${BW_SERVER:-}" ]; then
+        log INFO "Configuring Bitwarden server: $BW_SERVER"
+        if ! bw config server "$BW_SERVER" >/dev/null 2>&1; then
+            log ERROR "Failed to configure Bitwarden server: $BW_SERVER"
+            exit "$EXIT_LOGIN_FAILED"
+        fi
+        log SUCCESS "Bitwarden server configured: $BW_SERVER"
+    elif [ -n "${BW_WEB_VAULT:-}" ] || [ -n "${BW_API:-}" ] || [ -n "${BW_IDENTITY:-}" ] || [ -n "${BW_ICONS:-}" ] || [ -n "${BW_NOTIFICATIONS:-}" ] || [ -n "${BW_EVENTS:-}" ] || [ -n "${BW_KEY_CONNECTOR:-}" ]; then
+        log INFO "Configuring individual Bitwarden service URLs..."
+
+        # Build the config command with individual service URLs
+        local config_cmd="bw config server"
+
+        [ -n "${BW_WEB_VAULT:-}" ] && config_cmd+=" --web-vault \"$BW_WEB_VAULT\""
+        [ -n "${BW_API:-}" ] && config_cmd+=" --api \"$BW_API\""
+        [ -n "${BW_IDENTITY:-}" ] && config_cmd+=" --identity \"$BW_IDENTITY\""
+        [ -n "${BW_ICONS:-}" ] && config_cmd+=" --icons \"$BW_ICONS\""
+        [ -n "${BW_NOTIFICATIONS:-}" ] && config_cmd+=" --notifications \"$BW_NOTIFICATIONS\""
+        [ -n "${BW_EVENTS:-}" ] && config_cmd+=" --events \"$BW_EVENTS\""
+        [ -n "${BW_KEY_CONNECTOR:-}" ] && config_cmd+=" --key-connector \"$BW_KEY_CONNECTOR\""
+
+        log INFO "Executing: $config_cmd"
+        if ! eval "$config_cmd" >/dev/null 2>&1; then
+            log ERROR "Failed to configure individual Bitwarden service URLs"
+            exit "$EXIT_LOGIN_FAILED"
+        fi
+        log SUCCESS "Individual Bitwarden service URLs configured"
+    else
+        log INFO "No custom Bitwarden server configuration provided, using default (vault.bitwarden.com)"
+    fi
+
+    # Display current server configuration
+    local current_server
+    if current_server=$(bw config server 2>/dev/null); then
+        if [ -n "$current_server" ]; then
+            log INFO "Current Bitwarden server: $current_server"
+        else
+            log INFO "Using default Bitwarden server: vault.bitwarden.com"
+        fi
+    else
+        log WARN "Could not retrieve current Bitwarden server configuration"
+    fi
+}
+
 bw_logout() {
     log INFO "Logging out from any existing Bitwarden session..."
     bw logout >/dev/null 2>&1 || log INFO "Already logged out or no session."
@@ -1117,6 +1176,7 @@ main() {
     bw_logout
     check_dependencies
     validate_environment
+    configure_bitwarden_server
     bw_login
     bw_unlock
     export_data

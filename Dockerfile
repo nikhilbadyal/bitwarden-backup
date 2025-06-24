@@ -1,4 +1,4 @@
-FROM debian:bullseye-slim
+FROM debian:bookworm-slim
 
 # Install all dependencies in a single RUN layer
 RUN apt-get update && apt-get upgrade -y && \
@@ -10,24 +10,27 @@ RUN apt-get update && apt-get upgrade -y && \
         python3 \
         python3-pip \
         unzip \
+        build-essential \
         wget && \
-    # Install Apprise using pip
-    pip3 install apprise && \
-    # Install Bitwarden CLI
-    wget --quiet -O /tmp/bitwarden-cli.zip "https://vault.bitwarden.com/download/?app=cli&platform=linux" && \
-    unzip /tmp/bitwarden-cli.zip -d /usr/local/bin/ && \
-    rm -f /tmp/bitwarden-cli.zip && \
-    chmod +x /usr/local/bin/bw && \
+    # Install Node.js LTS (auto-detects arch, supports ARM/x86)
+    curl -fsSL https://deb.nodesource.com/setup_lts.x | bash - && \
+    apt-get install -y nodejs && \
+    # Install Apprise using pip (with --break-system-packages for Debian 12)
+    pip3 install apprise --break-system-packages && \
+    # Install Bitwarden CLI via npm (works on all architectures)
+    npm cache clean --force && \
+    npm install -g semver && \
+    npm install -g @bitwarden/cli && \
     # Install rclone (auto-detect architecture)
     curl https://rclone.org/install.sh | bash && \
     # Clean up apt cache and temporary files
     apt-get clean && \
-    rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
+    rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* /root/.npm
 
 # Create non-root user for security
 RUN groupadd -r backupuser && useradd -r -g backupuser -s /bin/bash backupuser
 
-# Set up Bitwarden CLI configuration directory
+# Set up Bitwarden CLI config directory
 RUN mkdir -p /home/backupuser/.config/Bitwarden\ CLI && \
     chown -R backupuser:backupuser /home/backupuser/.config
 
@@ -41,7 +44,7 @@ RUN chmod +x setup-rclone.sh scripts/backup.sh && \
 # Switch to non-root user
 USER backupuser
 
-# Add health check
+# Health check: ensure all required commands exist
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD command -v bw >/dev/null && command -v rclone >/dev/null && command -v jq >/dev/null || exit 1
 

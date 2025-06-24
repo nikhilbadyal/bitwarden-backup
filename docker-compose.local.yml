@@ -4,7 +4,6 @@ services:
       context: .
       dockerfile: Dockerfile
     container_name: bitwarden-backup
-    platform: linux/amd64
     volumes:
       - .:/app:rw
     env_file:
