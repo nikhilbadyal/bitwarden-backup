@@ -76,9 +76,9 @@ This repository provides a **"configure once, forget forever"** solution for Bit
 
 ### Prerequisites
 
-* A Bitwarden account with API access enabled (works with both official Bitwarden and self-hosted servers)
-* Docker installed (recommended) OR `bw`, `jq`, `gzip`, `openssl`, `rclone` CLI tools installed
-* Access to one or more cloud storage services with rclone support
+- A Bitwarden account with API access enabled (works with both official Bitwarden and self-hosted servers)
+- Docker installed (recommended) OR `bw`, `jq`, `gzip`, `openssl`, `rclone` CLI tools installed
+- Access to one or more cloud storage services with rclone support
 
 ### Alternative Installation Methods
 
@@ -142,10 +142,10 @@ BW_IDENTITY="https://identity.example.com"
 ```
 
 **Important Notes:**
-* Leave these variables empty or unset to use the official Bitwarden service
-* `BW_SERVER` is the recommended approach for most self-hosted installations
-* Individual service URLs (`BW_API`, `BW_IDENTITY`, etc.) override `BW_SERVER` if both are set
-* All existing backup functionality works identically with self-hosted servers
+- Leave these variables empty or unset to use the official Bitwarden service
+- `BW_SERVER` is the recommended approach for most self-hosted installations
+- Individual service URLs (`BW_API`, `BW_IDENTITY`, etc.) override `BW_SERVER` if both are set
+- All existing backup functionality works identically with self-hosted servers
 
 ### Optional Variables (Advanced)
 
@@ -177,10 +177,10 @@ BW_IDENTITY="https://identity.example.com"
 
 **Important Notes:**
 
-* `BACKUP_PATH`: For S3-compatible services, this becomes the bucket name. For other services, this is the folder path where backups are stored.
-* `MIN_BACKUP_SIZE`: Backups smaller than this are considered invalid and the script will exit with an error.
-* `PBKDF2_ITERATIONS`: Changes only affect new backups. Restore script automatically detects iteration count for backward compatibility.
-* All scripts automatically load variables from `.env` file if it exists in the project root.
+- `BACKUP_PATH`: For S3-compatible services, this becomes the bucket name. For other services, this is the folder path where backups are stored.
+- `MIN_BACKUP_SIZE`: Backups smaller than this are considered invalid and the script will exit with an error.
+- `PBKDF2_ITERATIONS`: Changes only affect new backups. Restore script automatically detects iteration count for backward compatibility.
+- All scripts automatically load variables from `.env` file if it exists in the project root.
 
 </details>
 
@@ -188,20 +188,20 @@ BW_IDENTITY="https://identity.example.com"
 
 **Backup Features:**
 
-* **Multi-Remote Support**: Backup to multiple cloud services simultaneously
-* **Strong Encryption**: AES-256-CBC encryption with PBKDF2 (configurable, default 600,000 iterations) using your password
-* **Zero-Disk Security**: Uses secure pipe-based processing - unencrypted vault data never touches disk
-* **Smart Change Detection**: Only uploads when vault actually changes (SHA256 comparison)
-* **Detailed Notifications**: Per-remote status in final notifications (success/failed/up-to-date)
-* **Automatic Retries**: Handles network issues and API rate limiting for Bitwarden unlock
-* **Secure Cleanup**: Logs out of Bitwarden and cleans temporary files
-* **Cross-platform**: Supports Linux and macOS (different SHA256 utilities)
+- **Multi-Remote Support**: Backup to multiple cloud services simultaneously
+- **Strong Encryption**: AES-256-CBC encryption with PBKDF2 (configurable, default 600,000 iterations) using your password
+- **Zero-Disk Security**: Uses secure pipe-based processing - unencrypted vault data never touches disk
+- **Smart Change Detection**: Only uploads when vault actually changes (SHA256 comparison)
+- **Detailed Notifications**: Per-remote status in final notifications (success/failed/up-to-date)
+- **Automatic Retries**: Handles network issues and API rate limiting for Bitwarden unlock
+- **Secure Cleanup**: Logs out of Bitwarden and cleans temporary files
+- **Cross-platform**: Supports Linux and macOS (different SHA256 utilities)
 
 **Restore Features:**
 
-* **Multi-Source Restore**: Decrypt local files or download from any remote
-* **Backup Browsing**: List and browse backups across all storage services
-* **Verification Pipeline**: Multi-stage validation (decryption → decompression → JSON validation)
+- **Multi-Source Restore**: Decrypt local files or download from any remote
+- **Backup Browsing**: List and browse backups across all storage services
+- **Verification Pipeline**: Multi-stage validation (decryption → decompression → JSON validation)
 
 ---
 
@@ -213,19 +213,19 @@ This backup solution supports **ALL rclone-compatible storage services**, includ
 
 **Object Storage:**
 
-* Amazon S3, Google Cloud Storage, Azure Blob Storage
-* Cloudflare R2, Backblaze B2, Wasabi, MinIO
-* IBM Cloud Object Storage, Oracle Cloud Storage
+- Amazon S3, Google Cloud Storage, Azure Blob Storage
+- Cloudflare R2, Backblaze B2, Wasabi, MinIO
+- IBM Cloud Object Storage, Oracle Cloud Storage
 
 **Consumer Cloud Storage:**
 
-* Google Drive, Dropbox, OneDrive, Box
-* pCloud, Mega, Yandex Disk, Mail.ru Cloud
+- Google Drive, Dropbox, OneDrive, Box
+- pCloud, Mega, Yandex Disk, Mail.ru Cloud
 
 **Enterprise Storage:**
 
-* SFTP, FTP, WebDAV, HTTP
-* Swift (OpenStack), Ceph, QingStor
+- SFTP, FTP, WebDAV, HTTP
+- Swift (OpenStack), Ceph, QingStor
 
 **And many more!** See the [rclone documentation](https://rclone.org/) for the complete list.
 
@@ -341,11 +341,11 @@ The `restore-backup.sh` script allows you to decrypt and restore your encrypted 
 
 ### Security Notes
 
-* Restored JSON files contain **unencrypted vault data** - handle with care
-* Files are created with secure permissions (owner read/write only)
-* Temporary files are automatically cleaned up
-* **Delete restored files** when no longer needed
-* The same `ENCRYPTION_PASSWORD` from backups is required
+- Restored JSON files contain **unencrypted vault data** - handle with care
+- Files are created with secure permissions (owner read/write only)
+- Temporary files are automatically cleaned up
+- **Delete restored files** when no longer needed
+- The same `ENCRYPTION_PASSWORD` from backups is required
 
 ### Advanced Features
 
@@ -354,26 +354,26 @@ The `restore-backup.sh` script allows you to decrypt and restore your encrypted 
 
 **Detailed Backup Features:**
 
-* **Multi-Remote Support**: Backup to multiple cloud storage services simultaneously (S3, Google Drive, Dropbox, OneDrive, Cloudflare R2, and 40+ others supported by rclone)
-* **Base64 Configuration**: Accepts rclone config as base64 to avoid typing errors and enable easy deployment
-* **Isolated Configuration**: Uses project-specific rclone config to avoid interfering with your global rclone setup
-* **Multi-Stage Validation**: JSON validation, size checks, compression verification, and encryption testing
-* **Encryption Verification**: Tests decryption and validates gzip format before upload
-* **Intelligent Change Detection**: SHA256 hashing to avoid unnecessary uploads when vault hasn't changed
-* **Independent Retention Management**: Per-remote retention policies based on configurable count
-* **Optional Apprise Notifications**: Success and failure notifications
-* **Automatic Retry Logic**: Handles transient network issues and API rate limiting for Bitwarden vault unlock
-* **Robust Error Handling**: Individual remote failures don't stop the entire process
-* **Secure Cleanup**: Logs out of Bitwarden and unsets sensitive environment variables
+- **Multi-Remote Support**: Backup to multiple cloud storage services simultaneously (S3, Google Drive, Dropbox, OneDrive, Cloudflare R2, and 40+ others supported by rclone)
+- **Base64 Configuration**: Accepts rclone config as base64 to avoid typing errors and enable easy deployment
+- **Isolated Configuration**: Uses project-specific rclone config to avoid interfering with your global rclone setup
+- **Multi-Stage Validation**: JSON validation, size checks, compression verification, and encryption testing
+- **Encryption Verification**: Tests decryption and validates gzip format before upload
+- **Intelligent Change Detection**: SHA256 hashing to avoid unnecessary uploads when vault hasn't changed
+- **Independent Retention Management**: Per-remote retention policies based on configurable count
+- **Optional Apprise Notifications**: Success and failure notifications
+- **Automatic Retry Logic**: Handles transient network issues and API rate limiting for Bitwarden vault unlock
+- **Robust Error Handling**: Individual remote failures don't stop the entire process
+- **Secure Cleanup**: Logs out of Bitwarden and unsets sensitive environment variables
 
 **Detailed Restore Features:**
 
-* **Multi-Source Restore**: Decrypt local files or download directly from any configured remote
-* **Backup Browsing**: List and browse available backups across all your cloud storage services
-* **Verification Pipeline**: Multi-stage validation (decryption → decompression → JSON validation)
-* **Secure Processing**: Temporary files with secure permissions and automatic cleanup
-* **Flexible Output**: Custom output file names and locations
-* **Download-Only Mode**: Download encrypted backups without decrypting (for manual processing)
+- **Multi-Source Restore**: Decrypt local files or download directly from any configured remote
+- **Backup Browsing**: List and browse available backups across all your cloud storage services
+- **Verification Pipeline**: Multi-stage validation (decryption → decompression → JSON validation)
+- **Secure Processing**: Temporary files with secure permissions and automatic cleanup
+- **Flexible Output**: Custom output file names and locations
+- **Download-Only Mode**: Download encrypted backups without decrypting (for manual processing)
 
 </details>
 
@@ -446,11 +446,11 @@ Reason: Compression or encryption failed. Check ENCRYPTION_PASSWORD.
 
 ## Security Considerations
 
-* **`.env` File**: Contains sensitive credentials. Set permissions to `chmod 600 .env`.
-* **Backup Directory**: Set secure permissions `chmod 700` on backup directory.
-* **Encryption Password**: Store securely and separately from backups. **Losing this password means losing access to your backups.**
-* **Rclone Configuration**: Contains cloud storage credentials. The base64 encoding is for convenience, not security.
-* **Multi-Remote Security**: Each remote should have appropriate access controls and encryption.
+- **`.env` File**: Contains sensitive credentials. Set permissions to `chmod 600 .env`.
+- **Backup Directory**: Set secure permissions `chmod 700` on backup directory.
+- **Encryption Password**: Store securely and separately from backups. **Losing this password means losing access to your backups.**
+- **Rclone Configuration**: Contains cloud storage credentials. The base64 encoding is for convenience, not security.
+- **Multi-Remote Security**: Each remote should have appropriate access controls and encryption.
 
 ## Migration from R2-Only Version
 
@@ -489,36 +489,36 @@ This issue is being investigated - the local build is currently more reliable.
 
 **No remotes found:**
 
-* Ensure `RCLONE_CONFIG_BASE64` is properly set
-* Test your config: `./generate-rclone-base64.sh --test`
+- Ensure `RCLONE_CONFIG_BASE64` is properly set
+- Test your config: `./generate-rclone-base64.sh --test`
 
 **Upload failures:**
 
-* Check remote credentials and permissions
-* Verify network connectivity
-* Review rclone configuration syntax
+- Check remote credentials and permissions
+- Verify network connectivity
+- Review rclone configuration syntax
 
 **Permission errors:**
 
-* Ensure scripts are executable: `chmod +x *.sh scripts/*.sh`
-* Check backup directory permissions
+- Ensure scripts are executable: `chmod +x *.sh scripts/*.sh`
+- Check backup directory permissions
 
 **Bitwarden unlock failures:**
 
 The script includes automatic retry logic for vault unlock failures. If you're experiencing frequent unlock issues:
 
-* **Increase retry attempts**: Set `BW_UNLOCK_RETRIES=5` (default: 3)
-* **Increase retry delay**: Set `BW_UNLOCK_RETRY_DELAY=10` (default: 5 seconds)
-* **Check network connectivity** to Bitwarden servers
-* **Verify your master password** is correct in the `BW_PASSWORD` variable
-* **Check for API rate limiting** if running frequent backups
+- **Increase retry attempts**: Set `BW_UNLOCK_RETRIES=5` (default: 3)
+- **Increase retry delay**: Set `BW_UNLOCK_RETRY_DELAY=10` (default: 5 seconds)
+- **Check network connectivity** to Bitwarden servers
+- **Verify your master password** is correct in the `BW_PASSWORD` variable
+- **Check for API rate limiting** if running frequent backups
 
 **🎉 Universal Architecture Support:**
 
 The Docker image is built for **2 main architectures** and works universally:
 
-* ✅ **linux/amd64** (Intel/AMD 64-bit: Most desktops, servers, cloud instances)
-* ✅ **linux/arm64** (ARM 64-bit: Apple Silicon, Raspberry Pi 4/5, AWS Graviton)
+- ✅ **linux/amd64** (Intel/AMD 64-bit: Most desktops, servers, cloud instances)
+- ✅ **linux/arm64** (ARM 64-bit: Apple Silicon, Raspberry Pi 4/5, AWS Graviton)
 
 **Manual Installation (without Docker):**
 

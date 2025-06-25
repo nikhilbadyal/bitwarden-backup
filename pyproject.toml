@@ -6,17 +6,11 @@ show-fixes = true
 [tool.ruff.lint]
 select = [ "ALL"]
 ignore = [
-    "D401",
-    "ANN401",
-    "S603",
-    "S607",
-    "ARG002", #unused-method-argument
-    "PTH122", #os-path-splitext
-    "TRY301", #raise-within-try
-    "PERF203", #try-except-in-loop
-    "UP004", #useless-object-inheritance
-    "PLR0911", #too many returns
-    "S310" # Audit URL open for permitted schemes.
+    "S603", # `subprocess` call: check for execution of untrusted input
+    "S607", # Starting a process with a partial executable path
+    "BLE001", # Audit URL open for permitted schemes.
+    "D104", # Audit URL open for permitted schemes.
+    "D100", # Audit URL open for permitted schemes.
 ]
 [tool.ruff.lint.pydocstyle]
 convention = "numpy"
