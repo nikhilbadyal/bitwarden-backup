@@ -1,0 +1,13 @@
+version: '3.8'
+
+services:
+  ui:
+    build:
+      context: .
+      dockerfile: Dockerfile.ui
+    container_name: bitwarden-backup-ui
+    ports:
+      - "3000:80"
+    environment:
+      - REACT_APP_API_BASE_URL=http://localhost:5050
+    restart: unless-stopped

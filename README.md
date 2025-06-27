@@ -1,4 +1,6 @@
-# Bitwarden Vault Backup Script
+# VaultSync
+
+![VaultSync Logo](./ui/src/full-logo.svg)
 
 **Configure once, forget forever.** Automated Bitwarden vault backups with **multi-remote cloud storage support**. Set up once and enjoy hands-free daily backups to multiple cloud services simultaneously (S3, Google Drive, Dropbox, OneDrive, Cloudflare R2, and 40+ others). **Supports both official Bitwarden and self-hosted servers.**
 
@@ -79,18 +81,25 @@ docker-compose up --build
 
 That's it! Your vault will be backed up to all configured remotes with encryption and compression.
 
-## 🌐 API Management Interface
+**🖥️ Want a Web UI?** See the [Management Interface](#-management-interface) section below for the complete web dashboard setup!
 
-This project includes a **REST API** for managing your Bitwarden backups through a web interface or programmatic access.
+## 🌐 Management Interface
 
-### Quick API Setup
+This project includes both a **modern web UI** and **REST API** for managing your Bitwarden backups through an intuitive interface or programmatic access.
 
-For detailed API setup instructions, Docker configuration, and usage examples, see:
+### Quick Setup
 
-**📖 [API.md](API.md) - Complete API Setup Guide**
+**🖥️ Web UI + API (Recommended):**
+```bash
+# Start everything (UI + API + Redis + Nginx)
+docker-compose -f docker-compose.full.yml up -d
 
-**Quick Start:**
+# Access the complete application
+# - Web UI: http://localhost:80
+# - API Docs: http://localhost:80/api/v1/docs
+```
 
+**🔌 API Only:**
 ```bash
 # Run the API with Docker
 ./run-api.sh
@@ -100,12 +109,163 @@ For detailed API setup instructions, Docker configuration, and usage examples, s
 # - Documentation: http://localhost:5050/api/v1/docs
 ```
 
+For detailed API setup instructions, Docker configuration, and usage examples, see:
+
+**📖 [API.md](API.md) - Complete API Setup Guide**
+
 The API provides endpoints for:
 
 - 📊 System health and monitoring
 - 📁 Backup file management and listing
 - ☁️ Remote storage provider management
 - 🔍 Advanced search and filtering capabilities
+
+## 🖥️ Web UI Dashboard
+
+This project includes a **modern React-based web interface** for managing your Bitwarden backups through an intuitive dashboard.
+
+### ✨ UI Features
+
+- **📊 Real-time System Health** - Monitor API status, Redis connectivity, and Rclone availability
+- **☁️ Remote Management** - View and manage all configured cloud storage remotes
+- **📁 Backup Browser** - Browse backup history with detailed metadata and logs
+- **🔧 Rclone Config Tool** - Convert and manage rclone configurations through the web interface
+- **🔐 Secure Authentication** - Token-based authentication with session management
+- **📱 Responsive Design** - Works on desktop, tablet, and mobile devices
+
+### 🚀 Quick UI Setup
+
+**Option 1: Full Stack (Recommended)**
+```bash
+# Start everything (API + UI + Redis + Nginx)
+docker-compose -f docker-compose.full.yml up -d
+
+# Access the complete application
+# - Web UI: http://localhost:80
+# - API: http://localhost:80/api (proxied through Nginx)
+```
+
+**Option 2: Manual Development Setup**
+```bash
+# 1. Start the API backend
+cls && uvicorn api.main:app --reload --host 0.0.0.0 --port 5050
+
+# 2. In another terminal, start the UI
+cd ui
+npm install
+npm start
+
+# Access:
+# - UI: http://localhost:3000
+# - API: http://localhost:5050
+```
+
+**Option 3: Docker Compose (Separate Services)**
+```bash
+# Start API only
+docker-compose -f docker-compose.api.yml up -d
+
+# Start UI only (in another terminal)
+docker-compose -f docker-compose.ui.yml up -d
+
+# Access:
+# - UI: http://localhost:3000
+# - API: http://localhost:5050
+```
+
+### 🔧 UI Configuration
+
+The UI requires these environment variables for proper API connectivity:
+
+| Variable            | Description     | Default                 | Docker Example            |
+|:--------------------|:----------------|:------------------------|:--------------------------|
+| `VITE_API_BASE_URL` | API backend URL | `http://localhost:5050` | `/api` (with Nginx proxy) |
+
+**For development:**
+```bash
+# In ui/.env file
+VITE_API_BASE_URL=http://localhost:5050
+```
+
+**For Docker with Nginx (recommended):**
+The full Docker Compose setup automatically configures Nginx to:
+- Serve the UI on port 80
+- Proxy `/api/*` requests to the backend
+- Handle CORS and routing properly
+
+### 🎨 UI Development
+
+The web interface is built with modern technologies:
+
+- **Frontend**: React 19 + Vite
+- **UI Framework**: Material-UI (MUI) v7
+- **Routing**: React Router v7
+- **Build Tool**: Vite (fast HMR and builds)
+- **Styling**: Emotion + MUI theming
+
+**Development Commands:**
+```bash
+cd ui
+
+# Install dependencies
+npm install
+
+# Start development server (with hot reload)
+npm start  # or npm run dev
+
+# Build for production
+npm run build
+
+# Preview production build
+npm run preview
+
+# Lint and format code
+npm run lint
+npm run format
+```
+
+### 🔐 Authentication
+
+The UI uses token-based authentication:
+
+1. **First Visit**: You'll be redirected to the login page
+2. **Enter API Token**: Use the same `API_TOKEN` from your `.env` file
+3. **Persistent Session**: Token is stored in localStorage for convenience
+4. **Logout**: Click the logout button to clear the session
+
+### 📱 UI Screenshots & Features
+
+**System Health Dashboard:**
+- Real-time component status (Redis, Rclone)
+- System uptime and version information
+- One-click cache clearing
+- Color-coded health indicators
+
+**Remote Storage Management:**
+- View all configured rclone remotes
+- Test remote connectivity
+- Storage usage and configuration details
+
+**Backup Browser:**
+- Chronological backup listing
+- Detailed backup metadata (size, date, remote)
+- Download and restoration options
+- Search and filtering capabilities
+
+**Rclone Configuration:**
+- Web-based config converter
+- Base64 encoding/decoding
+- Configuration validation
+
+### 🐛 UI Development Notes
+
+**Full Disclosure**: The web interface was "vibe coded" due to limited frontend expertise - it's fully functional but could use some design polish! 😅
+
+**Contributing**: If you're a frontend developer and want to contribute design improvements, we'd be incredibly grateful! The codebase is contribution-friendly and uses modern React patterns.
+
+**Known Limitations**:
+- Basic responsive design (works but could be enhanced)
+- Minimal animations and transitions
 
 ---
 

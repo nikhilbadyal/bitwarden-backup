@@ -1,0 +1,91 @@
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: bitwarden-backup-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    networks:
+      - bitwarden-backup-network
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    container_name: bitwarden-backup-api
+    ports:
+      - "5050:5050"
+    volumes:
+      - .:/app:rw
+    env_file:
+      - .env
+    environment:
+      - PYTHONPATH=/app
+      - REDIS_URL=redis://redis:6379/0
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - SETGID
+      - SETUID
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:5050/" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - bitwarden-backup-network
+
+  ui:
+    build:
+      context: .
+      dockerfile: Dockerfile.ui
+    container_name: bitwarden-backup-ui-builder
+    volumes:
+      - ui-build:/app/ui/build # Mount named volume for build output
+    environment:
+      - REACT_APP_API_BASE_URL=/api # Nginx will proxy /api to the backend
+    networks:
+      - bitwarden-backup-network
+
+  nginx:
+    image: nginx:alpine
+    container_name: bitwarden-backup-nginx
+    ports:
+      - "80:80" # Expose Nginx on port 80
+    volumes:
+      - ui-build:/usr/share/nginx/html # Serve UI from this volume
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro # Mount custom Nginx config
+    depends_on:
+      - ui # Ensure UI is built before Nginx starts
+      - api # Nginx proxies to API
+    restart: unless-stopped
+    networks:
+      - bitwarden-backup-network
+
+networks:
+  bitwarden-backup-network:
+    driver: bridge
+
+volumes:
+  redis-data:
+    driver: local
+  ui-build: # Define the named volume for UI build output
+    driver: local

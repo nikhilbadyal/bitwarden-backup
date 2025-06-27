@@ -24,4 +24,3 @@ __pycache__/
 rclone.conf
 bw.json
 totp.txt
-ui

@@ -1,0 +1,66 @@
+{
+  "name": "bitwarden-backup",
+  "description": "Automated Bitwarden backup tool with a modern React + MUI frontend. Secure, easy, and open-source.",
+  "version": "1.0.0",
+  "private": true,
+  "keywords": [
+    "bitwarden",
+    "backup",
+    "react",
+    "mui",
+    "automation",
+    "security",
+    "password-manager"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/nikhilbadyal/bitwarden-backup.git"
+  },
+  "author": "Nikhil Badyal",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/nikhilbadyal/bitwarden-backup/issues"
+  },
+  "homepage": "https://github.com/nikhilbadyal/bitwarden-backup#readme",
+  "scripts": {
+    "dev": "vite",
+    "start": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "lint": "eslint src/ --fix",
+    "format": "prettier --write \"src/**/*.{js,jsx,ts,tsx,json,css,md}\"",
+    "format:check": "prettier --check"
+  },
+  "dependencies": {
+    "@emotion/react": "^11.14.0",
+    "@emotion/styled": "^11.14.1",
+    "@mui/icons-material": "^7.1.2",
+    "@mui/material": "^7.1.2",
+    "@mui/x-date-pickers": "^8.6.0",
+    "date-fns": "^4.1.0",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "react-router-dom": "^7.6.3",
+    "web-vitals": "^5.0.3"
+      },
+    "browserslist": {
+    "production": [
+      ">0.2%",
+      "not dead",
+      "not op_mini all"
+    ],
+    "development": [
+      "last 1 chrome version",
+      "last 1 firefox version",
+      "last 1 safari version"
+    ]
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.6.0",
+    "eslint": "^8.57.1",
+    "eslint-config-prettier": "^10.1.5",
+    "eslint-config-react-app": "^7.0.1",
+    "prettier": "^3.6.2",
+    "vite": "^7.0.0"
+  }
+}
