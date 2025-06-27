@@ -453,6 +453,14 @@ class BulkDeleteResponse(BaseAPIModel):
         object.__setattr__(self, "total_size_freed", total_size)
         return self
 
+class PaginatedBackupResponse(BaseAPIModel):
+    """Paginated response model for backup files."""
+
+    items: list[BackupFile]
+    total: int
+    page: int
+    page_size: int
+
 
 class PaginationParams(BaseAPIModel):
     """Enhanced pagination parameters."""

@@ -18,6 +18,7 @@ from api.models import (
     BulkDeleteResponse,
     BulkDeleteResult,
     CacheRefreshResponse,
+    PaginatedBackupResponse,
     RcloneConfigBase64Response,
     TriggerBackupResponse,
 )
@@ -46,7 +47,9 @@ def list_backups( #noqa: C901,PLR0912,PLR0913
     max_date: str | None = None,
     page: int = 1,
     page_size: int = 20,
-) -> list[BackupFile]:
+    sort_by: str = "ModTime",
+    sort_order: str = "desc",
+) -> PaginatedBackupResponse:
     """List backups from a specific remote with optional filters."""
     backup_path = get_backup_path()
     redis_client = get_redis_client()
@@ -96,9 +99,32 @@ def list_backups( #noqa: C901,PLR0912,PLR0913
                 f for f in all_files
                 if (parse_dt(f.get("ModTime", "")) or DEFAULT_MAX).astimezone(DEFAULT_MAX.tzinfo) <= max_dt
             ]
+
+    if sort_by == "ModTime":
+        all_files.sort(key=lambda x: parse_dt(x.get("ModTime", "")) or DEFAULT_MIN, reverse=sort_order == "desc")
+
+    total_files = len(all_files)
     start = (page - 1) * page_size
     end = start + page_size
-    return [BackupFile(**pascal_to_snake_dict(f)) for f in all_files[start:end]]
+    paginated_files = [BackupFile(**pascal_to_snake_dict(f)) for f in all_files[start:end]]
+
+    return PaginatedBackupResponse(
+        items=paginated_files,
+        total=total_files,
+        page=page,
+        page_size=page_size,
+    )
+
+@router.get("/download/{remote}/{filename:path}")
+def download_backup(remote: str, filename: str, _: Annotated[bool, Depends(get_token)]) -> FileResponse:
+    """Download a specific backup file from a remote."""
+    backup_path = get_backup_path()
+    with tempfile.NamedTemporaryFile(delete=False) as tmp:
+        tmp_path = tmp.name
+    result = run_copyto(remote, backup_path, filename, tmp_path)
+    if result.returncode != 0:
+        raise HTTPException(status_code=404, detail="File not found or download failed.")
+    return FileResponse(tmp_path, filename=filename, media_type="application/octet-stream")
 
 @router.get("/{remote}/{filename:path}")
 def get_backup_metadata(remote: str, filename: str, _: Annotated[bool, Depends(get_token)]) -> BackupMetadataResponse:
@@ -152,17 +178,6 @@ def refresh_cache(remote: str, _: Annotated[bool, Depends(get_token)]) -> CacheR
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to refresh cache - {e}.") from e
-
-@router.get("/download/{remote}/{filename:path}")
-def download_backup(remote: str, filename: str, _: Annotated[bool, Depends(get_token)]) -> FileResponse:
-    """Download a specific backup file from a remote."""
-    backup_path = get_backup_path()
-    with tempfile.NamedTemporaryFile(delete=False) as tmp:
-        tmp_path = tmp.name
-    result = run_copyto(remote, backup_path, filename, tmp_path)
-    if result.returncode != 0:
-        raise HTTPException(status_code=404, detail="File not found or download failed.")
-    return FileResponse(tmp_path, filename=filename, media_type="application/octet-stream")
 
 @router.post("/trigger-backup")
 def trigger_backup(_: Annotated[bool, Depends(get_token)]) -> TriggerBackupResponse:

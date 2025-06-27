@@ -228,21 +228,12 @@ app.include_router(
 )
 
 
-# Additional utility endpoints
-@app.get(
-    "/api/v1/version",
-    summary="Get API Version",
-    description="Get detailed version information",
-    tags=["System"],
-)
-async def get_version() -> dict[str, str]:
-    """Get API version information."""
-    return {
-        "api_version": "1.0.0",
-        "python_version": f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}",
-        "fastapi_version": fastapi.__version__,
-        "build_date": "2025-01-01",  # You can make this dynamic
-    }
+# Note: System endpoints are now consolidated in api/routes/system.py
+# - /health - Health check with proper HTTP status codes
+# - /ping - Simple connectivity test
+# - /status - Detailed system status and metrics
+# - /info - Comprehensive system information (replaces /version)
+# - /maintenance/cache/clear - Clear system cache
 
 
 if __name__ == "__main__":

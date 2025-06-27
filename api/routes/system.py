@@ -17,6 +17,58 @@ router = APIRouter(tags=["System"])
 # Startup time for uptime calculation
 startup_time = time.time()
 
+ComponentData = dict[str, str | float | bool]
+SystemStatusData = dict[str, str | float | datetime | dict[str, str | ComponentData]]
+
+
+def get_system_status(*, check_redis: bool = True, check_rclone: bool = True) -> SystemStatusData:
+    """
+    Get comprehensive system status information.
+
+    Args:
+    ----
+        check_redis: Whether to check Redis status
+        check_rclone: Whether to check rclone status
+
+    Returns
+    -------
+        Dict containing system status information
+    """
+    status_data: SystemStatusData = {
+        "timestamp": datetime.now(UTC),
+        "uptime_seconds": time.time() - startup_time,
+        "system": {
+            "python_version": f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}",
+            "fastapi_version": fastapi.__version__,
+            "backup_path": get_backup_path(),
+        },
+        "components": {},
+    }
+
+    # Check Redis if requested
+    if check_redis:
+        redis_status, redis_response_time = get_redis_status()
+        components = status_data["components"]
+        if isinstance(components, dict):
+            components["redis"] = {
+                "status": redis_status,
+                "response_time_ms": redis_response_time,
+                "healthy": redis_status == "ok",
+            }
+
+    # Check rclone if requested
+    if check_rclone:
+        rclone_status, rclone_response_time = get_rclone_status()
+        components = status_data["components"]
+        if isinstance(components, dict):
+            components["rclone"] = {
+                "status": rclone_status,
+                "response_time_ms": rclone_response_time,
+                "healthy": rclone_status == "ok",
+            }
+
+    return status_data
+
 
 def get_redis_status() -> tuple[str, float]:
     """Get Redis connection status and response time."""
@@ -61,21 +113,19 @@ def get_rclone_status() -> tuple[str, float]:
 @router.get(
     "/health",
     summary="Health Check",
-    description="Check the health of the system, including Redis and rclone status",
+    description="Standard health check endpoint with appropriate HTTP status codes",
     responses={
-        200: {"description": "System health status"},
-        503: {"description": "Service unavailable - system unhealthy"},
+        200: {"description": "System is healthy"},
+        206: {"description": "System is degraded but functional"},
+        503: {"description": "System is unhealthy"},
     },
 )
 async def health() -> JSONResponse:
     """
-    Check the health of the system, including Redis and rclone status.
+    Return standard health check with appropriate HTTP status codes.
 
-    Returns detailed health information including:
-    - Overall system status
-    - Redis connection status
-    - rclone availability
-    - System uptime
+    This endpoint is optimized for health checking systems and load balancers.
+    It always checks all critical components and returns proper HTTP status codes.
     """
     # Get component statuses
     redis_status, redis_response_time = get_redis_status()
@@ -100,7 +150,7 @@ async def health() -> JSONResponse:
         )
     if health_response.status == "degraded":
         return JSONResponse(
-            status_code=status.HTTP_200_OK,
+            status_code=status.HTTP_206_PARTIAL_CONTENT,
             content=health_response.model_dump(mode="json"),
             headers={"X-Health-Status": "degraded"},
         )
@@ -110,13 +160,14 @@ async def health() -> JSONResponse:
         content=health_response.model_dump(mode="json"),
     )
 
+
 @router.get(
     "/ping",
-    summary="Simple Ping",
-    description="Simple ping endpoint for basic connectivity testing",
+    summary="Simple Connectivity Test",
+    description="Minimal endpoint for basic connectivity testing",
 )
 async def ping() -> APIResponse:
-    """Ping endpoint for basic connectivity testing."""
+    """Minimal ping endpoint for basic connectivity testing."""
     return APIResponse(
         status="ok",
         message="pong",
@@ -126,73 +177,70 @@ async def ping() -> APIResponse:
 
 @router.get(
     "/status",
-    summary="Detailed Status & Metrics",
-    description="Get detailed system status and optionally component metrics",
+    summary="System Status & Metrics",
+    description="Detailed system status information with optional component metrics",
 )
-async def get_detailed_status(
-    include_redis: Annotated[bool, Query(description="Include Redis metrics", alias="include_redis")] = False, #noqa: FBT002
-    include_rclone: Annotated[bool, Query(description="Include rclone metrics", alias="include_rclone")] = False, #noqa: FBT002
+async def get_status(
+    include_redis: Annotated[bool, Query(description="Include Redis metrics")] = True,  # noqa: FBT002
+    include_rclone: Annotated[bool, Query(description="Include rclone metrics")] = True,  # noqa: FBT002
 ) -> dict[str, Any]:
-    """Get detailed system status and optionally component metrics.
-
-    - include_redis: Whether to include Redis status and metrics.
-    - include_rclone: Whether to include rclone status and metrics.
-
     """
-    redis_status, redis_response_time = get_redis_status() if include_redis else ("unknown", None)
-    rclone_status, rclone_response_time = get_rclone_status() if include_rclone else ("unknown", None)
+    Get detailed system status and metrics.
 
-    # Determine overall status
-    # If you want always to check status for overall even if not including metrics, uncomment below
-    if not include_redis and not include_rclone:
-        base_redis_status, _ = get_redis_status()
-        base_rclone_status, _ = get_rclone_status()
-    else:
-        base_redis_status = redis_status if include_redis else "unknown"
-        base_rclone_status = rclone_status if include_rclone else "unknown"
+    This endpoint provides comprehensive system information and is designed for
+    monitoring and observability purposes.
 
+    Args:
+    ----
+        include_redis: Whether to include Redis status and metrics
+        include_rclone: Whether to include rclone status and metrics
+    """
+    status_data = get_system_status(
+        check_redis=include_redis,
+        check_rclone=include_rclone,
+    )
+
+    # Determine overall status based on component health
     overall_status = "healthy"
-    for s in [base_redis_status, base_rclone_status]:
-        if s == "error":
-            overall_status = "unhealthy"
-            break
-        if s == "unavailable":
-            overall_status = "degraded"
+    components = status_data.get("components", {})
+    if isinstance(components, dict):
+        for component_data in components.values():
+            if isinstance(component_data, dict) and component_data.get("status") == "error":
+                overall_status = "unhealthy"
+                break
+            if isinstance(component_data, dict) and component_data.get("status") == "unavailable":
+                overall_status = "degraded"
 
-    components = {}
-    if include_redis:
-        components["redis"] = {
-            "status": redis_status,
-            "response_time_ms": redis_response_time,
-            "healthy": redis_status == "ok",
-        }
-    if include_rclone:
-        components["rclone"] = {
-            "status": rclone_status,
-            "response_time_ms": rclone_response_time,
-            "healthy": rclone_status == "ok",
-        }
-
-    return {
+    # Create response dict with proper types
+    timestamp_value = (
+        status_data["timestamp"].isoformat()
+        if isinstance(status_data["timestamp"], datetime)
+        else status_data["timestamp"]
+    )
+    response_data: dict[str, Any] = {
         "overall_status": overall_status,
-        "timestamp": datetime.now(UTC).isoformat(),
-        "uptime_seconds": time.time() - startup_time,
+        "timestamp": timestamp_value,
+        "uptime_seconds": status_data["uptime_seconds"],
         "components": components,
-        "system": {
-            "python_version": f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}",
-            "fastapi_version": fastapi.__version__,
-            "backup_path": get_backup_path(),
-        },
+        "system": status_data["system"],
     }
+
+    return response_data
 
 
 @router.get(
-    "/version",
-    summary="Version & Info",
-    description="Get comprehensive version information and server details",
+    "/info",
+    summary="System Information",
+    description="Get comprehensive system and version information",
 )
-async def get_version_info() -> dict[str, Any]:
-    """Get detailed version information and system info."""
+async def get_system_info() -> dict[str, Any]:
+    """
+    Get comprehensive system information including versions, paths, and server details.
+
+    This endpoint combines version information with system details for a complete
+    overview of the running system.
+    """
+    # Get rclone version
     try:
         result = run_version()
         rclone_version = "unknown"
@@ -205,30 +253,37 @@ async def get_version_info() -> dict[str, Any]:
 
     return {
         "api": {
+            "name": "Bitwarden Backup API",
             "version": "1.0.0",
-            "build_date": "2025-01-01",  # Adjust if you want dynamic
+            "build_date": "2025-01-01",
         },
-        "server_time": datetime.now(UTC).isoformat(),
-        "backup_path": get_backup_path(),
-        "python": {
-            "version": f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}",
-            "implementation": sys.implementation.name,
+        "server": {
+            "time": datetime.now(UTC).isoformat(),
+            "uptime_seconds": time.time() - startup_time,
+            "backup_path": get_backup_path(),
         },
-        "fastapi": {
-            "version": fastapi.__version__,
+        "runtime": {
+            "python": {
+                "version": f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}",
+                "implementation": sys.implementation.name,
+            },
+            "fastapi": {
+                "version": fastapi.__version__,
+            },
         },
-        "rclone": {
-            "version": rclone_version,
-            "available": rclone_version not in ["error", "unknown"],
+        "tools": {
+            "rclone": {
+                "version": rclone_version,
+                "available": rclone_version not in ["error", "unknown"],
+            },
         },
     }
 
 
-
 @router.post(
     "/maintenance/cache/clear",
-    summary="Clear Cache",
-    description="Clear all cached data (use with caution)",
+    summary="Clear System Cache",
+    description="Clear all cached data (use with caution in production)",
 )
 async def clear_cache() -> APIResponse:
     """Clear all cached data (use with caution in production)."""
