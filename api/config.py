@@ -46,3 +46,15 @@ def get_backup_path() -> str:
     except KeyError as ke:
         msg = "Environment variable BACKUP_PATH is required but not set"
         raise RuntimeError(msg) from ke
+
+def get_encryption_password() -> str:
+    """Get the encryption password from environment variables."""
+    try:
+        return os.environ["ENCRYPTION_PASSWORD"]
+    except KeyError as ke:
+        msg = "Environment variable ENCRYPTION_PASSWORD is required but not set"
+        raise RuntimeError(msg) from ke
+
+def get_scripts_dir() -> Path:
+    """Get the scripts directory path."""
+    return Path(__file__).parent.parent

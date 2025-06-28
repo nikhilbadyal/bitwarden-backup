@@ -1,8 +1,12 @@
+import asyncio
 import base64
 import json
+import os
 import re
+import shutil
 import subprocess
 import tempfile
+from pathlib import Path
 from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Body, Depends, HTTPException
@@ -10,7 +14,7 @@ from fastapi.responses import FileResponse
 
 from api.auth import get_token
 from api.cache import clear_rclone_cache, get_redis_client
-from api.config import get_backup_path
+from api.config import get_backup_path, get_encryption_password, get_scripts_dir, setup_rclone_config
 from api.models import (
     BackupFile,
     BackupMetadataResponse,
@@ -161,6 +165,84 @@ def delete_backup(remote: str, filename: str, _: Annotated[bool, Depends(get_tok
         return {"status": "ok", "message": f"Deleted {filename}"}
     raise HTTPException(status_code=500,
                         detail=f"Failed to delete backup: {result.stderr if result.stderr else 'Delete failed'}")
+
+@router.post("/restore/{remote}/{filename:path}")
+async def restore_backup(
+    remote: str,
+    filename: str,
+    _: Annotated[bool, Depends(get_token)],
+) -> FileResponse:
+    """Restore a specific backup file from a remote by downloading and decrypting it."""
+
+    def _raise_process_error(error_message: str) -> None:
+        """Raise HTTPException for process execution errors."""
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to restore backup: {error_message}",
+        )
+
+    def _raise_output_missing_error() -> None:
+        """Raise HTTPException when output file was not created."""
+        raise HTTPException(
+            status_code=500,
+            detail="Restore completed but output file was not created",
+        )
+
+    scripts_dir = get_scripts_dir()
+    script_path = scripts_dir / "restore-backup.sh"
+
+    if not script_path.exists():
+        raise HTTPException(status_code=500, detail="Restore script not found.")
+
+    # Create a temporary directory securely, then create file inside it
+    temp_dir = tempfile.mkdtemp(prefix="restored_backup_")
+    output_file = Path(temp_dir) / "restored_backup.json"
+
+    command = [
+        str(script_path),
+        "-r",
+        remote,
+        "--specific-file",
+        filename,
+        "-o",
+        str(output_file),
+    ]
+
+    try:
+        # Set up rclone configuration from RCLONE_CONFIG_BASE64
+        setup_rclone_config()
+
+        encryption_password = get_encryption_password()
+        process = await asyncio.create_subprocess_exec(
+            *command,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            env={**os.environ, "ENCRYPTION_PASSWORD": encryption_password},
+        )
+        stdout, stderr = await process.communicate()
+
+        if process.returncode != 0:
+            error_message = stderr.decode() if stderr else "Unknown error occurred"
+            _raise_process_error(error_message)
+
+        if not output_file.exists():
+            _raise_output_missing_error()
+
+        return FileResponse(
+            path=str(output_file),
+            filename=f"restored_{filename.replace('.enc', '.json')}",
+            media_type="application/json",
+        )
+    except Exception as e:
+        # Clean up the temporary directory on error
+        if Path(temp_dir).exists():
+            shutil.rmtree(temp_dir)
+        if isinstance(e, HTTPException):
+            raise
+        raise HTTPException(
+            status_code=500,
+            detail=f"An unexpected error occurred during restore: {e!s}",
+        ) from e
 
 @router.post("/refresh-cache")
 def refresh_cache(remote: str, _: Annotated[bool, Depends(get_token)]) -> CacheRefreshResponse:

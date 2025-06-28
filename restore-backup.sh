@@ -81,6 +81,7 @@ OPTIONS:
     -h, --help              Show this help message
     -o, --output FILE       Output file path (default: ./restored_backup_TIMESTAMP.json)
     -r, --remote REMOTE     Download latest backup from specified remote
+    --specific-file FILE    Download and decrypt a specific file from a remote (requires -r)
     -l, --list              List available backup files from all configured remotes
     --list-remote REMOTE    List available backup files from specific remote
     -f, --file FILE         Decrypt local backup file
@@ -139,6 +140,7 @@ BACKUP_FILE=""
 DOWNLOAD_ONLY=false
 EXTRACT_PERSONAL=false
 EXTRACT_ORG=""
+SPECIFIC_FILE=""
 
 # --- Parse command line arguments ---
 while [[ $# -gt 0 ]]; do
@@ -177,6 +179,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --org)
             EXTRACT_ORG="$2"
+            shift 2
+            ;;
+        --specific-file)
+            SPECIFIC_FILE="$2"
             shift 2
             ;;
         -*)
@@ -254,6 +260,32 @@ list_remote_backups() {
          jq -r '.[] | select(.Name | endswith(".enc")) | "\(.Name) (\(.Size) bytes) \(.ModTime)"' | \
          sort -r; then
         log WARN "No backup files found or failed to list files from remote: $remote"
+        return 1
+    fi
+}
+
+# Download a specific backup file from a remote
+download_specific_backup() {
+    local remote="$1"
+    local filename="$2"
+
+    if [ -z "$remote" ] || [ -z "$filename" ]; then
+        log ERROR "Remote and filename are required for specific download"
+        return 1
+    fi
+
+    log INFO "Downloading specific backup: $filename from remote: $remote"
+
+    # Create temporary directory for download
+    mkdir -p "$BACKUP_DIR"
+    local downloaded_file="$BACKUP_DIR/$filename"
+
+    if rclone --config "$PROJECT_RCLONE_CONFIG_FILE" copy "$remote:$BACKUP_PATH/$filename" "$BACKUP_DIR/"; then
+        log SUCCESS "Downloaded backup: $downloaded_file"
+        echo "$downloaded_file"
+        return 0
+    else
+        log ERROR "Failed to download backup from remote: $remote"
         return 1
     fi
 }
@@ -517,9 +549,16 @@ CLEANUP_INPUT=false
 
 if [ -n "$REMOTE_NAME" ]; then
     # Download from remote
-    if ! INPUT_FILE=$(download_latest_backup "$REMOTE_NAME"); then
-        log ERROR "Failed to download backup from remote: $REMOTE_NAME"
-        exit 1
+    if [ -n "$SPECIFIC_FILE" ]; then
+        if ! INPUT_FILE=$(download_specific_backup "$REMOTE_NAME" "$SPECIFIC_FILE"); then
+            log ERROR "Failed to download specific backup from remote: $REMOTE_NAME"
+            exit 1
+        fi
+    else
+        if ! INPUT_FILE=$(download_latest_backup "$REMOTE_NAME"); then
+            log ERROR "Failed to download latest backup from remote: $REMOTE_NAME"
+            exit 1
+        fi
     fi
     CLEANUP_INPUT=true
 elif [ -n "$BACKUP_FILE" ]; then
