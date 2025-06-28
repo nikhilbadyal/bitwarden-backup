@@ -1,6 +1,9 @@
-name: Push Base Image to DockerHub
+name: Push Backup Image to DockerHub
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - main
   workflow_call:
     inputs:
       dockerfile:
