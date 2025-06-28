@@ -31,6 +31,20 @@ from api.utils import DEFAULT_MAX, DEFAULT_MIN, parse_dt
 
 router = APIRouter(prefix="/backups", tags=["Backups"])
 
+# Internal metadata files that should be filtered out from user-facing operations
+INTERNAL_METADATA_FILES = {
+    ".last_bw_backup_hash.sha256",  # Hash tracking file used by backup script
+    # Add future metadata files here as needed
+}
+
+def filter_internal_files(files: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Filter out internal metadata files from backup file listings."""
+    return [f for f in files if f.get("Name") not in INTERNAL_METADATA_FILES]
+
+def is_internal_metadata_file(filename: str) -> bool:
+    """Check if a filename is an internal metadata file that should be protected."""
+    return filename in INTERNAL_METADATA_FILES
+
 def pascal_to_snake_dict(item: dict[str, Any]) -> dict[str, Any]:
     """Convert a dictionary with PascalCase keys to snake_case keys."""
     def to_snake(s: str) -> str:
@@ -85,6 +99,9 @@ def list_backups( #noqa: C901,PLR0912,PLR0913
             except RuntimeError:
                 all_files = []
 
+    # Filter out internal metadata files from user-facing listings
+    all_files = filter_internal_files(all_files)
+
     if min_date:
         min_dt = parse_dt(min_date)
         if min_dt:
@@ -122,6 +139,13 @@ def list_backups( #noqa: C901,PLR0912,PLR0913
 @router.get("/download/{remote}/{filename:path}")
 def download_backup(remote: str, filename: str, _: Annotated[bool, Depends(get_token)]) -> FileResponse:
     """Download a specific backup file from a remote."""
+    # Prevent download of internal metadata files
+    if is_internal_metadata_file(filename):
+        raise HTTPException(
+            status_code=400,
+            detail="Internal metadata file not available for download",
+        )
+
     backup_path = get_backup_path()
     with tempfile.NamedTemporaryFile(delete=False) as tmp:
         tmp_path = tmp.name
@@ -133,6 +157,13 @@ def download_backup(remote: str, filename: str, _: Annotated[bool, Depends(get_t
 @router.get("/{remote}/{filename:path}")
 def get_backup_metadata(remote: str, filename: str, _: Annotated[bool, Depends(get_token)]) -> BackupMetadataResponse:
     """Get metadata for a specific backup file."""
+    # Reject requests for internal metadata files
+    if is_internal_metadata_file(filename):
+        raise HTTPException(
+            status_code=404,
+            detail="Internal metadata file not accessible",
+        )
+
     redis_client = get_redis_client()
     backup_path = get_backup_path()
     cache_key = f"rclone_lsjson:{remote}:{backup_path}"
@@ -148,6 +179,10 @@ def get_backup_metadata(remote: str, filename: str, _: Annotated[bool, Depends(g
             redis_client.set(cache_key, json.dumps(all_files), ex=86400)
         except Exception:
             all_files = []
+
+    # Filter out internal metadata files
+    all_files = filter_internal_files(all_files)
+
     for f in all_files:
         if f.get("Name") == filename:
             return BackupMetadataResponse(**pascal_to_snake_dict(f))
@@ -156,6 +191,13 @@ def get_backup_metadata(remote: str, filename: str, _: Annotated[bool, Depends(g
 @router.delete("/{remote}/{filename:path}")
 def delete_backup(remote: str, filename: str, _: Annotated[bool, Depends(get_token)]) -> dict[str, str]:
     """Delete a specific backup file from a remote."""
+    # Prevent deletion of internal metadata files
+    if is_internal_metadata_file(filename):
+        raise HTTPException(
+            status_code=400,
+            detail="Cannot delete internal metadata file required by backup system",
+        )
+
     redis_client = get_redis_client()
     backup_path = get_backup_path()
     result = run_deletefile(remote, backup_path, filename)
@@ -173,6 +215,12 @@ async def restore_backup(
     _: Annotated[bool, Depends(get_token)],
 ) -> FileResponse:
     """Restore a specific backup file from a remote by downloading and decrypting it."""
+    # Prevent restore of internal metadata files
+    if is_internal_metadata_file(filename):
+        raise HTTPException(
+            status_code=400,
+            detail="Internal metadata file cannot be restored",
+        )
 
     def _raise_process_error(error_message: str) -> None:
         """Raise HTTPException for process execution errors."""
@@ -287,7 +335,20 @@ def bulk_delete_backups(
     redis_client = get_redis_client()
     results = []
     cache_key = f"rclone_lsjson:{remote}:{backup_path}"
+
     for filename in req.files:
+        # Handle internal metadata files
+        if is_internal_metadata_file(filename):
+            results.append(
+                BulkDeleteResult(
+                    filename=filename,
+                    status="error",
+                    message="Cannot delete internal metadata file required by backup system",
+                    size_freed=None,
+                ),
+            )
+            continue
+
         result = run_deletefile(remote, backup_path, filename)
         if result.returncode == 0:
             status: Literal["ok", "error", "not_found", "permission_denied"] = "ok"
