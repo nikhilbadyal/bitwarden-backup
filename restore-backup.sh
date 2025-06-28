@@ -75,6 +75,7 @@ print_usage() {
 Usage: $0 [OPTIONS] [BACKUP_FILE]
 
 Restore and decrypt Bitwarden backup files to plain JSON format.
+Supports both personal-only and consolidated (personal + organizations) formats.
 
 OPTIONS:
     -h, --help              Show this help message
@@ -84,6 +85,8 @@ OPTIONS:
     --list-remote REMOTE    List available backup files from specific remote
     -f, --file FILE         Decrypt local backup file
     --download-only         Download backup file without decrypting
+    --personal              Extract only personal vault (for consolidated backups)
+    --org ORG_ID            Extract specific organization vault (for consolidated backups)
 
 ARGUMENTS:
     BACKUP_FILE            Local encrypted backup file to decrypt (same as -f)
@@ -94,6 +97,12 @@ EXAMPLES:
 
     # Decrypt local file and specify output
     $0 -f backup.enc -o restored_vault.json
+
+    # Extract only personal vault from consolidated backup
+    $0 -f backup.enc --personal -o personal_vault.json
+
+    # Extract specific organization vault
+    $0 -f backup.enc --org 12345678-1234-1234-1234-123456789012 -o org_vault.json
 
     # Download and decrypt latest backup from S3 remote
     $0 -r s3-remote
@@ -112,6 +121,12 @@ REQUIREMENTS:
     - For remote operations: RCLONE_CONFIG_BASE64 or rclone config setup
     - openssl, gzip, jq commands available
 
+NOTES:
+    - Standard backups contain only personal vault data (default)
+    - Consolidated backups contain personal + organization data
+    - Without --personal or --org flags, full backup is restored as-is
+    - Use --personal to get Bitwarden CLI compatible format from consolidated backups
+
 EOF
 }
 
@@ -122,6 +137,8 @@ LIST_ALL=false
 LIST_REMOTE=""
 BACKUP_FILE=""
 DOWNLOAD_ONLY=false
+EXTRACT_PERSONAL=false
+EXTRACT_ORG=""
 
 # --- Parse command line arguments ---
 while [[ $# -gt 0 ]]; do
@@ -153,6 +170,14 @@ while [[ $# -gt 0 ]]; do
         --download-only)
             DOWNLOAD_ONLY=true
             shift
+            ;;
+        --personal)
+            EXTRACT_PERSONAL=true
+            shift
+            ;;
+        --org)
+            EXTRACT_ORG="$2"
+            shift 2
             ;;
         -*)
             log ERROR "Unknown option: $1"
@@ -269,6 +294,63 @@ download_latest_backup() {
     fi
 }
 
+# Extract personal vault data from either format
+extract_personal_vault() {
+    local backup_file="$1"
+    local output_file="$2"
+
+    if jq -e '.personal' "$backup_file" >/dev/null 2>&1; then
+        # New consolidated format - extract personal vault
+        log INFO "Extracting personal vault from consolidated format..."
+        if ! jq '.personal' "$backup_file" > "$output_file"; then
+            log ERROR "Failed to extract personal vault from consolidated backup"
+            return 1
+        fi
+    else
+        # Standard format - file is already in personal vault format
+        log INFO "Backup is already in personal vault format..."
+        if ! cp "$backup_file" "$output_file"; then
+            log ERROR "Failed to copy standard format backup"
+            return 1
+        fi
+    fi
+
+    # Validate the extracted personal vault
+    if ! jq -e '.items' "$output_file" >/dev/null 2>&1; then
+        log ERROR "Extracted data does not contain valid personal vault structure"
+        return 1
+    fi
+
+    log SUCCESS "Personal vault data extracted successfully"
+    return 0
+}
+
+# Extract organization vault data from consolidated format
+extract_organization_vault() {
+    local backup_file="$1"
+    local org_id="$2"
+    local output_file="$3"
+
+    if ! jq -e '.organizations' "$backup_file" >/dev/null 2>&1; then
+        log ERROR "Backup does not contain organization data"
+        return 1
+    fi
+
+    if ! jq -e --arg org_id "$org_id" '.organizations[$org_id]' "$backup_file" >/dev/null 2>&1; then
+        log ERROR "Organization $org_id not found in backup"
+        return 1
+    fi
+
+    log INFO "Extracting organization vault: $org_id"
+    if ! jq --arg org_id "$org_id" '.organizations[$org_id]' "$backup_file" > "$output_file"; then
+        log ERROR "Failed to extract organization $org_id from backup"
+        return 1
+    fi
+
+    log SUCCESS "Organization vault $org_id extracted successfully"
+    return 0
+}
+
 # Decrypt and decompress backup file
 restore_backup() {
     local encrypted_file="$1"
@@ -363,9 +445,32 @@ restore_backup() {
     fi
 
     # Show some basic info about the restored vault
+    # Detect format and show appropriate information
     local item_count
-    if item_count=$(jq '.items | length' "$output_file" 2>/dev/null); then
-        log INFO "Restored vault contains $item_count items"
+    if jq -e '.personal' "$output_file" >/dev/null 2>&1; then
+        # New consolidated format
+        log INFO "Detected consolidated backup format"
+        if jq -e '.personal' "$output_file" >/dev/null 2>&1; then
+            local personal_items
+            if personal_items=$(jq '.personal.items | length' "$output_file" 2>/dev/null); then
+                log INFO "Personal vault contains $personal_items items"
+            fi
+        fi
+        if jq -e '.organizations | keys | length > 0' "$output_file" >/dev/null 2>&1; then
+            local org_count
+            org_count=$(jq '.organizations | keys | length' "$output_file" 2>/dev/null)
+            log INFO "Backup contains $org_count organization vault(s)"
+            # Show items per organization
+            jq -r '.organizations | to_entries[] | "\(.key): \(.value.items | length) items"' "$output_file" 2>/dev/null | while read -r org_info; do
+                log INFO "  Organization $org_info"
+            done
+        fi
+    elif item_count=$(jq '.items | length' "$output_file" 2>/dev/null); then
+        # Standard format
+        log INFO "Detected standard backup format"
+        log INFO "Vault contains $item_count items"
+    else
+        log WARN "Could not determine backup format or item count"
     fi
 
     # Clean up temp files explicitly
@@ -445,17 +550,60 @@ fi
 # Determine output file
 if [ -z "$OUTPUT_FILE" ]; then
     TIMESTAMP=$(date "+%Y%m%d_%H%M%S")
-    OUTPUT_FILE="./restored_backup_${TIMESTAMP}.json"
+    if [ "$EXTRACT_PERSONAL" = true ]; then
+        OUTPUT_FILE="./personal_vault_${TIMESTAMP}.json"
+    elif [ -n "$EXTRACT_ORG" ]; then
+        OUTPUT_FILE="./org_${EXTRACT_ORG}_${TIMESTAMP}.json"
+    else
+        OUTPUT_FILE="./restored_backup_${TIMESTAMP}.json"
+    fi
 fi
 
 # Perform restoration
-if restore_backup "$INPUT_FILE" "$OUTPUT_FILE"; then
-    log SUCCESS "Restoration completed successfully!"
-    log INFO "You can now import this JSON file back into Bitwarden if needed."
-    log INFO "Keep this file secure and delete it when no longer needed."
+temp_restored_file=""
+if [ "$EXTRACT_PERSONAL" = true ] || [ -n "$EXTRACT_ORG" ]; then
+    # For extractions, first restore to temp file, then extract
+    temp_restored_file=$(mktemp "${BACKUP_DIR:-/tmp}/temp_restore.XXXXXX.json")
+    chmod 600 "$temp_restored_file"
+
+    if restore_backup "$INPUT_FILE" "$temp_restored_file"; then
+        if [ "$EXTRACT_PERSONAL" = true ]; then
+            if extract_personal_vault "$temp_restored_file" "$OUTPUT_FILE"; then
+                log SUCCESS "Personal vault extraction completed successfully!"
+                log INFO "Personal vault saved to: $OUTPUT_FILE"
+                log INFO "This file is compatible with Bitwarden CLI import."
+            else
+                log ERROR "Personal vault extraction failed"
+                rm -f "$temp_restored_file"
+                exit 1
+            fi
+        elif [ -n "$EXTRACT_ORG" ]; then
+            if extract_organization_vault "$temp_restored_file" "$EXTRACT_ORG" "$OUTPUT_FILE"; then
+                log SUCCESS "Organization vault extraction completed successfully!"
+                log INFO "Organization vault saved to: $OUTPUT_FILE"
+                log INFO "This file is compatible with Bitwarden CLI import."
+            else
+                log ERROR "Organization vault extraction failed"
+                rm -f "$temp_restored_file"
+                exit 1
+            fi
+        fi
+        rm -f "$temp_restored_file"
+    else
+        log ERROR "Initial restoration failed"
+        rm -f "$temp_restored_file"
+        exit 1
+    fi
 else
-    log ERROR "Restoration failed"
-    exit 1
+    # Normal full restoration
+    if restore_backup "$INPUT_FILE" "$OUTPUT_FILE"; then
+        log SUCCESS "Restoration completed successfully!"
+        log INFO "You can now import this JSON file back into Bitwarden if needed."
+        log INFO "Keep this file secure and delete it when no longer needed."
+    else
+        log ERROR "Restoration failed"
+        exit 1
+    fi
 fi
 
 # Cleanup downloaded file if it was temporary

@@ -109,6 +109,11 @@ readonly BITWARDEN_SYNC_TIMEOUT="${BITWARDEN_SYNC_TIMEOUT:-60}"
 readonly PARALLEL_THRESHOLD="${PARALLEL_THRESHOLD:-3}"
 readonly MAX_PARALLEL_JOBS="${MAX_PARALLEL_JOBS:-4}"
 
+# Export configuration
+readonly EXPORT_PERSONAL="${EXPORT_PERSONAL:-true}"
+readonly EXPORT_ORGANIZATIONS="${EXPORT_ORGANIZATIONS:-false}"
+readonly BW_ORGANIZATION_IDS="${BW_ORGANIZATION_IDS:-}"
+
 # --- Logging Function ---
 log() {
     local level=$1
@@ -937,8 +942,123 @@ export_data() {
         log SUCCESS "Vault sync completed successfully."
     fi
 
-    # This avoids writing unencrypted data to disk
-    log INFO "Performing secure pipe-based backup (no unencrypted data written to disk)..."
+    # Check what should be exported
+    if [[ "$EXPORT_PERSONAL" != "true" && "$EXPORT_ORGANIZATIONS" != "true" ]]; then
+        log ERROR "No export types enabled. Set EXPORT_PERSONAL=true and/or EXPORT_ORGANIZATIONS=true"
+        exit "$EXIT_EXPORT_FAILED"
+    fi
+
+    # Determine if we need consolidated format (when organizations are exported)
+    local use_consolidated_format=false
+    if [[ "$EXPORT_ORGANIZATIONS" == "true" && -n "$BW_ORGANIZATION_IDS" ]]; then
+        use_consolidated_format=true
+    fi
+
+    local final_data=""
+    local export_count=0
+
+    # Export personal vault if requested
+    local personal_export=""
+    if [[ "$EXPORT_PERSONAL" == "true" ]]; then
+        log INFO "Exporting personal vault..."
+
+        if ! personal_export=$(echo "$BW_PASSWORD" | bw export --raw --session "$BW_SESSION" --format json 2>/dev/null); then
+            log ERROR "Failed to export personal vault data."
+            exit "$EXIT_EXPORT_FAILED"
+        fi
+
+        # Validate personal export
+        if [ -z "$personal_export" ] || ! echo "$personal_export" | jq empty >/dev/null 2>&1; then
+            log ERROR "Personal vault export is empty or contains invalid JSON."
+            exit "$EXIT_EXPORT_FAILED"
+        fi
+
+        export_count=$((export_count + 1))
+        log SUCCESS "Personal vault exported successfully"
+    fi
+
+    # Export organization vaults if requested
+    local org_exports=""
+    if [[ "$EXPORT_ORGANIZATIONS" == "true" ]]; then
+        if [ -z "$BW_ORGANIZATION_IDS" ]; then
+            log WARN "EXPORT_ORGANIZATIONS is enabled but BW_ORGANIZATION_IDS is empty."
+            log INFO "To get organization IDs, run: bw list organizations --session \$BW_SESSION"
+            # If personal export is also disabled, this is an error
+            if [[ "$EXPORT_PERSONAL" != "true" ]]; then
+                log ERROR "Cannot export organizations without BW_ORGANIZATION_IDS and personal export is disabled."
+                log ERROR "Either set BW_ORGANIZATION_IDS or enable EXPORT_PERSONAL=true"
+                exit "$EXIT_EXPORT_FAILED"
+            fi
+        else
+            log INFO "Exporting organization vaults..."
+
+            # Initialize organizations object
+            org_exports='{}'
+
+            # Split organization IDs by comma
+            IFS=',' read -ra ORG_IDS <<< "$BW_ORGANIZATION_IDS"
+
+            for org_id in "${ORG_IDS[@]}"; do
+                # Trim whitespace
+                org_id=$(echo "$org_id" | tr -d '[:space:]')
+
+                if [ -n "$org_id" ]; then
+                    log INFO "Exporting organization: $org_id"
+
+                    local org_export
+                    if ! org_export=$(echo "$BW_PASSWORD" | bw export --raw --session "$BW_SESSION" --format json --organizationid "$org_id" 2>/dev/null); then
+                        log ERROR "Failed to export organization $org_id."
+                        exit "$EXIT_EXPORT_FAILED"
+                    fi
+
+                    # Validate organization export (allow empty organizations)
+                    if [ -n "$org_export" ] && echo "$org_export" | jq empty >/dev/null 2>&1; then
+                        # Add organization data to organizations object
+                        org_exports=$(echo "$org_exports" | jq --argjson org "$org_export" --arg orgid "$org_id" '.[$orgid] = $org')
+                        export_count=$((export_count + 1))
+                        log SUCCESS "Organization $org_id exported successfully"
+                    else
+                        log WARN "Organization $org_id export is empty or invalid (organization may be empty)"
+                    fi
+                fi
+            done
+        fi
+    fi
+
+    # Check if we have any exports
+    if [ "$export_count" -eq 0 ]; then
+        log ERROR "No vault data was exported. Check your configuration."
+        exit "$EXIT_EXPORT_FAILED"
+    fi
+
+    # Create final data based on format requirements
+    if [ "$use_consolidated_format" = true ]; then
+        # Use consolidated format when organizations are exported
+        log INFO "Creating consolidated backup with personal and organization data..."
+        local consolidated_data='{"personal": null, "organizations": {}}'
+
+        if [[ "$EXPORT_PERSONAL" == "true" ]]; then
+            consolidated_data=$(echo "$consolidated_data" | jq --argjson personal "$personal_export" '.personal = $personal')
+        fi
+
+        if [[ -n "$org_exports" && "$org_exports" != "{}" ]]; then
+            consolidated_data=$(echo "$consolidated_data" | jq --argjson orgs "$org_exports" '.organizations = $orgs')
+        fi
+
+        final_data="$consolidated_data"
+        log INFO "Using consolidated format for $export_count export(s)"
+    else
+        # Use standard format for personal-only exports
+        if [[ "$EXPORT_PERSONAL" == "true" ]]; then
+            final_data="$personal_export"
+            log INFO "Using standard Bitwarden format for personal vault export"
+        else
+            log ERROR "No valid export configuration for standard format."
+            exit "$EXIT_EXPORT_FAILED"
+        fi
+    fi
+
+    log INFO "Performing secure compression and encryption..."
 
     local temp_encrypted_file="${BACKUP_DIR}/bw_backup_${TIMESTAMP}.json.gz.enc"
 
@@ -947,9 +1067,9 @@ export_data() {
         exit "$EXIT_COMPRESS_FAILED"
     fi
 
-    # Secure pipe: bw export -> gzip -> openssl encrypt -> file
+    # Secure pipe: final JSON -> gzip -> openssl encrypt -> file
     # This ensures unencrypted data never touches the disk
-    if ! echo "$BW_PASSWORD" | bw export --raw --session "$BW_SESSION" --format json | \
+    if ! echo "$final_data" | jq -c '.' | \
          gzip -c -"${COMPRESSION_LEVEL}" | \
          openssl enc -aes-256-cbc -pbkdf2 -iter "$PBKDF2_ITERATIONS" -salt -pass env:ENCRYPTION_PASSWORD > "$temp_encrypted_file"; then
         log ERROR "Failed to create secure encrypted backup."

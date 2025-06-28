@@ -34,6 +34,24 @@ RCLONE_CONFIG_BASE64=your_base64_encoded_rclone_config
 EOF
 ```
 
+### Optional: Organization Export Support
+
+To also backup organization vaults, add these optional variables:
+
+```bash
+# Enable organization exports
+EXPORT_ORGANIZATIONS=true
+
+# List organization IDs to export (comma-separated, no spaces)
+# Get org IDs with: bw list organizations --session $BW_SESSION
+BW_ORGANIZATION_IDS=12345678-1234-1234-1234-123456789012,87654321-4321-4321-4321-210987654321
+```
+
+**📋 Backup Format Compatibility:**
+- **Personal-only backups** (default): Uses standard Bitwarden export format
+- **Organization backups**: Uses consolidated format when organizations are exported
+- **Restore script**: Automatically detects and handles both formats
+
 ### 3. Run Backup
 
 **⚡ Fastest (No cloning required):**
@@ -182,6 +200,19 @@ BW_IDENTITY="https://identity.example.com"
 - `BW_SERVER` is the recommended approach for most self-hosted installations
 - Individual service URLs (`BW_API`, `BW_IDENTITY`, etc.) override `BW_SERVER` if both are set
 - All existing backup functionality works identically with self-hosted servers
+
+### Export Configuration Variables
+
+| Variable               | Description                                  | Default | Example                     |
+|:-----------------------|:---------------------------------------------|:--------|:----------------------------|
+| `EXPORT_PERSONAL`      | Export personal vault                        | `true`  | `true` or `false`           |
+| `EXPORT_ORGANIZATIONS` | Export organization vaults                   | `false` | `true` or `false`           |
+| `BW_ORGANIZATION_IDS`  | Organization IDs to export (comma-separated) | None    | `12345678-...,87654321-...` |
+
+**Format Details:**
+- When `EXPORT_ORGANIZATIONS=false` (default): Uses standard Bitwarden export format
+- When `EXPORT_ORGANIZATIONS=true`: Uses consolidated format with `personal` and `organizations` sections
+- Restore script automatically detects format and provides extraction options
 
 ### Optional Variables (Advanced)
 
