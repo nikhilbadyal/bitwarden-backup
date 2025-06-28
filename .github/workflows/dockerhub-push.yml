@@ -1,21 +1,41 @@
 name: Push Base Image to DockerHub
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - 'main'
-
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  workflow_call:
+    inputs:
+      dockerfile:
+        description: 'Dockerfile to build'
+        required: false
+        type: string
+        default: 'Dockerfile'
+      image-suffix:
+        description: 'Suffix to add to image name'
+        required: false
+        type: string
+        default: ''
+      additional-tags:
+        description: 'Additional tags to apply (comma-separated)'
+        required: false
+        type: string
+        default: ''
+      push-description:
+        description: 'Whether to push description to Docker Hub'
+        required: false
+        type: boolean
+        default: true
+    secrets:
+      DOCKERHUB_USERNAME:
+        required: true
+      DOCKERHUB_TOKEN:
+        required: true
 
 jobs:
   dockerhub-push:
     uses: nikhilbadyal/ghactions/.github/workflows/dockerhub-push.yml@main
     with:
-      IMAGE_TAG: ${{ github.repository }}:latest
-      FILE: Dockerfile
-      PUSH_DESCRIPTION: true
+      IMAGE_TAG: ${{ github.repository }}${{ inputs.image-suffix || '' }}:latest${{ inputs.additional-tags && format(',{0}', inputs.additional-tags) || '' }}
+      FILE: ${{ inputs.dockerfile || 'Dockerfile' }}
+      PUSH_DESCRIPTION: ${{ inputs.push-description || true }}
       PLATFORMS: linux/amd64,linux/arm64
     secrets:
       DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
