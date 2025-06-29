@@ -1,0 +1,220 @@
+name: Bitwarden CLI Version Monitor
+
+on:
+  schedule:
+    # Check for new Bitwarden CLI releases daily at 7:00 AM UTC
+    - cron: '0 7 * * *'
+  workflow_dispatch:
+    # Allow manual triggering
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  check-bw-cli-version:
+    runs-on: ubuntu-latest
+    outputs:
+      new-version-available: ${{ steps.version-check.outputs.new-version-available }}
+      latest-version: ${{ steps.version-check.outputs.latest-version }}
+      current-version: ${{ steps.version-check.outputs.current-version }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Get latest Bitwarden CLI version from NPM
+        id: get-latest-version
+        run: |
+          LATEST_VERSION=$(curl -s https://registry.npmjs.org/@bitwarden/cli | jq -r '."dist-tags".latest')
+          echo "latest-version=${LATEST_VERSION}" >> $GITHUB_OUTPUT
+          echo "Latest Bitwarden CLI version: ${LATEST_VERSION}"
+
+      - name: Get current Bitwarden CLI version from Docker Hub image
+        id: get-current-version
+        run: |
+          # Pull the latest image from Docker Hub
+          docker pull nikhilbadyal/bitwarden-backup:latest
+
+          # Run the image and extract Bitwarden CLI version
+          CURRENT_VERSION=$(docker run --rm --entrypoint="" nikhilbadyal/bitwarden-backup:latest bw --version 2>/dev/null | grep -m1 -oE '[0-9]+\.[0-9]+\.[0-9]+')
+          echo "current-version=${CURRENT_VERSION}" >> $GITHUB_OUTPUT
+          echo "Current Bitwarden CLI version in Docker Hub image: ${CURRENT_VERSION}"
+
+      - name: Compare versions and set flag
+        id: version-check
+        run: |
+          LATEST="${{ steps.get-latest-version.outputs.latest-version }}"
+          CURRENT="${{ steps.get-current-version.outputs.current-version }}"
+
+          echo "latest-version=${LATEST}" >> $GITHUB_OUTPUT
+          echo "current-version=${CURRENT}" >> $GITHUB_OUTPUT
+
+          if [ "${LATEST}" != "${CURRENT}" ]; then
+            echo "new-version-available=true" >> $GITHUB_OUTPUT
+            echo "🚀 New Bitwarden CLI version available: ${LATEST} (current: ${CURRENT})"
+          else
+            echo "new-version-available=false" >> $GITHUB_OUTPUT
+            echo "✅ Bitwarden CLI is up to date: ${CURRENT}"
+          fi
+
+      - name: Create issue for new version
+        if: steps.version-check.outputs.new-version-available == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const latestVersion = '${{ steps.version-check.outputs.latest-version }}';
+            const currentVersion = '${{ steps.version-check.outputs.current-version }}';
+
+            const issues = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              labels: 'bitwarden-cli-update'
+            });
+
+            const existingIssue = issues.data.find(issue =>
+              issue.title.includes(latestVersion)
+            );
+
+            if (!existingIssue) {
+              const issueBody = [
+                'A new version of Bitwarden CLI is available and Docker images will be updated automatically.',
+                '',
+                '**Version Information:**',
+                `- **Current version:** ${currentVersion}`,
+                `- **Latest version:** ${latestVersion}`,
+                `- **NPM URL:** https://www.npmjs.com/package/@bitwarden/cli/v/${latestVersion}`,
+                '',
+                '**Automated Actions:**',
+                '- ✅ Docker image will be rebuilt and pushed to Docker Hub',
+                '- ✅ Main backup service image will be updated',
+                '- 🔄 This process was triggered automatically by the Bitwarden CLI version monitor',
+                '',
+                'This issue will be automatically closed once the Docker image is successfully updated.'
+              ].join('\n');
+
+              await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title: `🔄 New Bitwarden CLI version available: ${latestVersion}`,
+                body: issueBody,
+                labels: ['bitwarden-cli-update', 'automation', 'docker']
+              });
+
+              console.log(`Created issue for Bitwarden CLI version ${latestVersion}`);
+            }
+
+  trigger-docker-build:
+    needs: check-bw-cli-version
+    if: needs.check-bw-cli-version.outputs.new-version-available == 'true'
+    uses: ./.github/workflows/dockerhub-push.yml
+    with:
+      dockerfile: Dockerfile
+      push-description: true
+    secrets:
+      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+      DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+
+  update-issue-success:
+    needs: [check-bw-cli-version, trigger-docker-build]
+    if: always() && needs.check-bw-cli-version.outputs.new-version-available == 'true' && needs.trigger-docker-build.result == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Close Bitwarden CLI update issue
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const latestVersion = '${{ needs.check-bw-cli-version.outputs.latest-version }}';
+
+            const issues = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              labels: 'bitwarden-cli-update'
+            });
+
+            const targetIssue = issues.data.find(issue =>
+              issue.title.includes(latestVersion)
+            );
+
+            if (targetIssue) {
+              const commentBody = [
+                '✅ **Docker image successfully updated!**',
+                '',
+                '**Completed Actions:**',
+                '- 🐳 Main backup image rebuilt and pushed to Docker Hub',
+                `- 📦 Image now includes Bitwarden CLI ${latestVersion}`,
+                '- 🌍 Multi-architecture support maintained (linux/amd64, linux/arm64)',
+                '',
+                '**Docker Hub Image:**',
+                `- \`${context.repo.owner}/${context.repo.repo}:latest\``,
+                '',
+                'The Docker image is now up to date with the latest Bitwarden CLI version. Closing this issue.'
+              ].join('\n');
+
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: targetIssue.number,
+                body: commentBody
+              });
+
+              await github.rest.issues.update({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: targetIssue.number,
+                state: 'closed'
+              });
+
+              console.log(`Closed issue #${targetIssue.number} for Bitwarden CLI version ${latestVersion}`);
+            }
+
+  update-issue-failure:
+    needs: [check-bw-cli-version, trigger-docker-build]
+    if: always() && needs.check-bw-cli-version.outputs.new-version-available == 'true' && needs.trigger-docker-build.result == 'failure'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Comment on failure
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const latestVersion = '${{ needs.check-bw-cli-version.outputs.latest-version }}';
+
+            const issues = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              labels: 'bitwarden-cli-update'
+            });
+
+            const targetIssue = issues.data.find(issue =>
+              issue.title.includes(latestVersion)
+            );
+
+            if (targetIssue) {
+              const failureBody = [
+                '❌ **Docker image update failed!**',
+                '',
+                `There was an error updating the Docker image with Bitwarden CLI ${latestVersion}.`,
+                '',
+                '**Action Required:**',
+                `- Check the [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) for details`,
+                '- Manual intervention may be required',
+                '- Consider updating the Dockerfile manually if needed',
+                '',
+                'This issue will remain open until the Docker image is successfully updated.'
+              ].join('\n');
+
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: targetIssue.number,
+                body: failureBody
+              });
+
+              console.log(`Added failure comment to issue #${targetIssue.number}`);
+            }
