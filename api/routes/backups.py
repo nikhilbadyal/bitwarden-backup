@@ -12,7 +12,7 @@ from typing import Annotated, Any, Literal
 from fastapi import APIRouter, Body, Depends, HTTPException
 from fastapi.responses import FileResponse
 
-from api.auth import get_token
+from api.auth import get_token, get_token_with_decryption_permission
 from api.cache import clear_rclone_cache, get_redis_client
 from api.config import get_backup_path, get_encryption_password, get_scripts_dir
 from api.models import (
@@ -137,7 +137,9 @@ def list_backups( #noqa: C901,PLR0912,PLR0913
     )
 
 @router.get("/download/{remote}/{filename:path}")
-def download_backup(remote: str, filename: str, _: Annotated[bool, Depends(get_token)]) -> FileResponse:
+def download_backup(
+    remote: str, filename: str, _: Annotated[bool, Depends(get_token_with_decryption_permission)],
+) -> FileResponse:
     """Download a specific backup file from a remote."""
     # Prevent download of internal metadata files
     if is_internal_metadata_file(filename):
@@ -212,7 +214,7 @@ def delete_backup(remote: str, filename: str, _: Annotated[bool, Depends(get_tok
 async def restore_backup(
     remote: str,
     filename: str,
-    _: Annotated[bool, Depends(get_token)],
+    _: Annotated[bool, Depends(get_token_with_decryption_permission)],
 ) -> FileResponse:
     """Restore a specific backup file from a remote by downloading and decrypting it."""
     # Prevent restore of internal metadata files

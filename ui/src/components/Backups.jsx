@@ -165,6 +165,18 @@ function Backups({ token }) {
     })
       .then((response) => {
         if (!response.ok) {
+          if (response.status === 403) {
+            return response
+              .json()
+              .then((errorData) => {
+                throw new Error(`Permission denied: ${errorData.detail || "Decryption operations are disabled"}`);
+              })
+              .catch(() => {
+                throw new Error(
+                  "Permission denied: Backup decryption operations are disabled. Please contact your administrator to enable this feature.",
+                );
+              });
+          }
           throw new Error(`HTTP error! status: ${response.status}`);
         }
         return response.blob();
@@ -181,7 +193,11 @@ function Backups({ token }) {
       })
       .catch((error) => {
         console.error("Error downloading file:", error);
-        alert("Failed to download file. Check console for details.");
+        if (error.message.includes("Permission denied")) {
+          alert(error.message);
+        } else {
+          alert("Failed to download file. Check console for details.");
+        }
       });
   };
 
@@ -299,6 +315,18 @@ function Backups({ token }) {
       })
         .then((response) => {
           if (!response.ok) {
+            if (response.status === 403) {
+              return response
+                .json()
+                .then((errorData) => {
+                  throw new Error(`Permission denied: ${errorData.detail || "Decryption operations are disabled"}`);
+                })
+                .catch(() => {
+                  throw new Error(
+                    "Permission denied: Backup decryption operations are disabled. Please contact your administrator to enable this feature.",
+                  );
+                });
+            }
             throw new Error(`HTTP error! status: ${response.status}`);
           }
           return response.blob().then((blob) => ({ blob, response }));
@@ -325,7 +353,11 @@ function Backups({ token }) {
         })
         .catch((error) => {
           console.error("Error restoring file:", error);
-          alert("Failed to restore file. Check console for details.");
+          if (error.message.includes("Permission denied")) {
+            alert(error.message);
+          } else {
+            alert("Failed to restore file. Check console for details.");
+          }
         });
     }
   };
