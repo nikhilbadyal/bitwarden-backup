@@ -21,6 +21,7 @@ def setup_rclone_config() -> None:
     with tempfile.NamedTemporaryFile(mode="wb", delete=False, prefix="rclone-config-", suffix=".conf") as tmp:
         tmp.write(base64.b64decode(b64))
         tmp.flush()
+        os.environ["PROJECT_RCLONE_CONFIG_FILE"] = tmp.name
         os.environ["RCLONE_CONFIG"] = tmp.name
 
 def get_api_token() -> str:

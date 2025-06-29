@@ -64,7 +64,7 @@ app = FastAPI(
     version="1.0.0",
     contact={
         "name": "Bitwarden Backup API Support",
-        "url": "https://github.com/your-repo/bitwarden-backup",
+        "url": "https://github.com/nikhilbadyal/bitwarden-backup/",
         "email": "support@example.com",
     },
     license_info={

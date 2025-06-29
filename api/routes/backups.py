@@ -14,7 +14,7 @@ from fastapi.responses import FileResponse
 
 from api.auth import get_token
 from api.cache import clear_rclone_cache, get_redis_client
-from api.config import get_backup_path, get_encryption_password, get_scripts_dir, setup_rclone_config
+from api.config import get_backup_path, get_encryption_password, get_scripts_dir
 from api.models import (
     BackupFile,
     BackupMetadataResponse,
@@ -257,9 +257,6 @@ async def restore_backup(
     ]
 
     try:
-        # Set up rclone configuration from RCLONE_CONFIG_BASE64
-        setup_rclone_config()
-
         encryption_password = get_encryption_password()
         process = await asyncio.create_subprocess_exec(
             *command,
