@@ -82,6 +82,7 @@ RCLONE_CONFIG_BASE64="W215LXMzXQp0eXBlID0gczMK..."
 
 # API configuration
 API_TOKEN="your_secure_random_api_token_here"
+API_ALLOW_BACKUP_DECRYPTION="false"  # Set to "true" to enable sensitive operations
 REDIS_URL="redis://localhost:6379/0"
 BACKUP_PATH="bitwarden-backup"
 ```
@@ -115,6 +116,19 @@ All API endpoints (except health checks) require authentication using the `Autho
 ```bash
 curl -H "Authorization: Bearer your_api_token" http://localhost:5050/api/v1/backups
 ```
+
+### Sensitive Operations Security
+
+For additional security, sensitive operations that involve accessing backup data require double opt-in:
+
+1. **Authentication**: Valid API token (standard requirement)
+2. **Explicit Permission**: `API_ALLOW_BACKUP_DECRYPTION=true` environment variable
+
+**Sensitive endpoints include:**
+- `POST /api/v1/backups/restore/{remote}/{filename}` - Decrypts and restores backup files
+- `GET /api/v1/backups/download/{remote}/{filename}` - Downloads backup files (encrypted)
+
+If `API_ALLOW_BACKUP_DECRYPTION` is not set to `true`, these endpoints will return a 403 Forbidden error.
 
 ### Key Endpoints
 

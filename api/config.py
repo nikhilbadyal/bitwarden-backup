@@ -59,3 +59,7 @@ def get_encryption_password() -> str:
 def get_scripts_dir() -> Path:
     """Get the scripts directory path."""
     return Path(__file__).parent.parent
+
+def is_backup_decryption_allowed() -> bool:
+    """Check if backup decryption operations are allowed via environment variable."""
+    return os.environ.get("API_ALLOW_BACKUP_DECRYPTION", "false").lower() == "true"

@@ -30,7 +30,7 @@ class ErrorBoundary extends React.Component {
   render() {
     if (this.state.hasError) {
       return (
-        <div style={{ padding: '20px', color: 'red', backgroundColor: '#ffe6e6' }}>
+        <div style={{ padding: "20px", color: "red", backgroundColor: "#ffe6e6" }}>
           <h2>Something went wrong:</h2>
           <pre>{this.state.error?.toString()}</pre>
         </div>
@@ -85,7 +85,7 @@ function App() {
       <Router>
         <Routes>
           <Route path="/login" element={<Login setToken={setToken} />} />
-          <Route path="/debug" element={<div style={{padding: '20px'}}>Debug page - Token: {token || 'None'}</div>} />
+          <Route path="/debug" element={<div style={{ padding: "20px" }}>Debug page - Token: {token || "None"}</div>} />
           <Route
             path="/*"
             element={
@@ -130,7 +130,7 @@ function MainLayout({ menuItems, handleLogout, token }) {
           <Box sx={{ overflow: "auto" }}>
             <List>
               {menuItems.map((item) => (
-                <ListItem component={Link} to={item.path} key={item.text} sx={{ cursor: 'pointer' }}>
+                <ListItem component={Link} to={item.path} key={item.text} sx={{ cursor: "pointer" }}>
                   <ListItemIcon>{item.icon}</ListItemIcon>
                   <ListItemText primary={item.text} />
                 </ListItem>
