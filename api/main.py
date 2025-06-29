@@ -42,6 +42,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 # Create FastAPI application with modern configuration
 app = FastAPI(
     title="Bitwarden Backup API",
+    summary="Configure once, forget forever. Automated Bitwarden backups with multi-remote cloud storage support.",
     description="""
     ## Bitwarden Vault Backup Management API
 
@@ -65,7 +66,6 @@ app = FastAPI(
     contact={
         "name": "Bitwarden Backup API Support",
         "url": "https://github.com/nikhilbadyal/bitwarden-backup/",
-        "email": "support@example.com",
     },
     license_info={
         "name": "MIT",
@@ -86,6 +86,10 @@ app = FastAPI(
         },
     ],
     lifespan=lifespan,
+    servers=[
+        {"url": "http://localhost", "description": "Full Setup"},
+        {"url": "http://localhost:5050", "description": "Backend Server"},
+    ],
     # Modern OpenAPI configuration
     openapi_url="/api/v1/openapi.json",
     docs_url="/api/v1/docs",
