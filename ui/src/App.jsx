@@ -111,7 +111,7 @@ function MainLayout({ menuItems, handleLogout, token }) {
           <Toolbar>
             <img src={logo} alt="Bitwarden Backup Logo" style={{ height: "36px", marginRight: "16px" }} />
             <Typography variant="h6" noWrap component="div" sx={{ flexGrow: 1 }}>
-              Bitwarden Backup UI
+              VαultSync
             </Typography>
             <Button color="inherit" onClick={handleLogout} startIcon={<ExitToApp />}>
               Logout
