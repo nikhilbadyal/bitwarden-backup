@@ -177,7 +177,17 @@ function Backups({ token }) {
                 );
               });
           }
-          throw new Error(`HTTP error! status: ${response.status}`);
+          // Try to get error details from response
+          return response.text().then((text) => {
+            let errorMessage = `HTTP ${response.status}`;
+            try {
+              const errorData = JSON.parse(text);
+              errorMessage += `: ${errorData.detail || errorData.message || response.statusText}`;
+            } catch {
+              errorMessage += `: ${response.statusText || "Unknown error"}`;
+            }
+            throw new Error(errorMessage);
+          });
         }
         return response.blob();
       })
@@ -193,11 +203,7 @@ function Backups({ token }) {
       })
       .catch((error) => {
         console.error("Error downloading file:", error);
-        if (error.message.includes("Permission denied")) {
-          alert(error.message);
-        } else {
-          alert("Failed to download file. Check console for details.");
-        }
+        alert(`Failed to download file: ${error.message}`);
       });
   };
 
@@ -211,7 +217,16 @@ function Backups({ token }) {
       })
         .then((response) => {
           if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
+            return response.text().then((text) => {
+              let errorMessage = `HTTP ${response.status}`;
+              try {
+                const errorData = JSON.parse(text);
+                errorMessage += `: ${errorData.detail || errorData.message || response.statusText}`;
+              } catch {
+                errorMessage += `: ${response.statusText || "Unknown error"}`;
+              }
+              throw new Error(errorMessage);
+            });
           }
           return response.json();
         })
@@ -221,7 +236,7 @@ function Backups({ token }) {
         })
         .catch((error) => {
           console.error("Error deleting file:", error);
-          alert("Failed to delete file. Check console for details.");
+          alert(`Failed to delete file: ${error.message}`);
         });
     }
   };
@@ -240,7 +255,16 @@ function Backups({ token }) {
     })
       .then((response) => {
         if (!response.ok) {
-          throw new Error(`HTTP error! status: ${response.status}`);
+          return response.text().then((text) => {
+            let errorMessage = `HTTP ${response.status}`;
+            try {
+              const errorData = JSON.parse(text);
+              errorMessage += `: ${errorData.detail || errorData.message || response.statusText}`;
+            } catch {
+              errorMessage += `: ${response.statusText || "Unknown error"}`;
+            }
+            throw new Error(errorMessage);
+          });
         }
         return response.json();
       })
@@ -250,7 +274,7 @@ function Backups({ token }) {
       })
       .catch((error) => {
         console.error("Error refreshing cache:", error);
-        alert("Failed to refresh cache. Check console for details.");
+        alert(`Failed to refresh cache: ${error.message}`);
       });
   };
 
@@ -264,7 +288,16 @@ function Backups({ token }) {
     })
       .then((response) => {
         if (!response.ok) {
-          throw new Error(`HTTP error! status: ${response.status}`);
+          return response.text().then((text) => {
+            let errorMessage = `HTTP ${response.status}`;
+            try {
+              const errorData = JSON.parse(text);
+              errorMessage += `: ${errorData.detail || errorData.message || response.statusText}`;
+            } catch {
+              errorMessage += `: ${response.statusText || "Unknown error"}`;
+            }
+            throw new Error(errorMessage);
+          });
         }
         return response.json();
       })
@@ -274,7 +307,7 @@ function Backups({ token }) {
       })
       .catch((error) => {
         console.error("Error triggering backup:", error);
-        alert("Failed to trigger backup. Check console for details.");
+        alert(`Failed to trigger backup: ${error.message}`);
       });
   };
 
@@ -286,7 +319,16 @@ function Backups({ token }) {
     })
       .then((response) => {
         if (!response.ok) {
-          throw new Error(`HTTP error! status: ${response.status}`);
+          return response.text().then((text) => {
+            let errorMessage = `HTTP ${response.status}`;
+            try {
+              const errorData = JSON.parse(text);
+              errorMessage += `: ${errorData.detail || errorData.message || response.statusText}`;
+            } catch {
+              errorMessage += `: ${response.statusText || "Unknown error"}`;
+            }
+            throw new Error(errorMessage);
+          });
         }
         return response.json();
       })
@@ -296,7 +338,7 @@ function Backups({ token }) {
       })
       .catch((error) => {
         console.error("Error fetching backup details:", error);
-        alert("Failed to fetch backup details. Check console for details.");
+        alert(`Failed to fetch backup details: ${error.message}`);
       });
   };
 
@@ -327,7 +369,16 @@ function Backups({ token }) {
                   );
                 });
             }
-            throw new Error(`HTTP error! status: ${response.status}`);
+            return response.text().then((text) => {
+              let errorMessage = `HTTP ${response.status}`;
+              try {
+                const errorData = JSON.parse(text);
+                errorMessage += `: ${errorData.detail || errorData.message || response.statusText}`;
+              } catch {
+                errorMessage += `: ${response.statusText || "Unknown error"}`;
+              }
+              throw new Error(errorMessage);
+            });
           }
           return response.blob().then((blob) => ({ blob, response }));
         })
@@ -353,11 +404,7 @@ function Backups({ token }) {
         })
         .catch((error) => {
           console.error("Error restoring file:", error);
-          if (error.message.includes("Permission denied")) {
-            alert(error.message);
-          } else {
-            alert("Failed to restore file. Check console for details.");
-          }
+          alert(`Failed to restore file: ${error.message}`);
         });
     }
   };
@@ -406,7 +453,16 @@ function Backups({ token }) {
       })
         .then((response) => {
           if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
+            return response.text().then((text) => {
+              let errorMessage = `HTTP ${response.status}`;
+              try {
+                const errorData = JSON.parse(text);
+                errorMessage += `: ${errorData.detail || errorData.message || response.statusText}`;
+              } catch {
+                errorMessage += `: ${response.statusText || "Unknown error"}`;
+              }
+              throw new Error(errorMessage);
+            });
           }
           return response.json();
         })
@@ -418,7 +474,7 @@ function Backups({ token }) {
         })
         .catch((error) => {
           console.error("Error during bulk delete:", error);
-          alert("Failed to perform bulk delete. Check console for details.");
+          alert(`Failed to perform bulk delete: ${error.message}`);
         });
     }
   };
