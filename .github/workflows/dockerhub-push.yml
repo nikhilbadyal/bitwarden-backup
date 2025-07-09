@@ -38,7 +38,8 @@ jobs:
     with:
       IMAGE_TAG: ${{ github.repository }}${{ inputs.image-suffix || '' }}:latest${{ inputs.additional-tags && format(',{0}', inputs.additional-tags) || '' }}
       FILE: ${{ inputs.dockerfile || 'Dockerfile' }}
-      PUSH_DESCRIPTION: ${{ inputs.push-description || true }}
+      #Disabled until https://github.com/peter-evans/dockerhub-description/issues/319 is resolved
+      PUSH_DESCRIPTION: false
       PLATFORMS: linux/amd64,linux/arm64
     secrets:
       DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
