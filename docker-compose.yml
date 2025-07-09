@@ -23,3 +23,9 @@ services:
       - DAC_OVERRIDE
       - SETGID
       - SETUID
+    command: >
+      sh -c "
+        chmod +x /app/*.sh /app/scripts/*.sh &&
+        /app/setup-rclone.sh &&
+        /app/scripts/backup.sh
+      "

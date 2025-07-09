@@ -10,3 +10,9 @@ services:
       - .env
     environment:
       - BACKUP_DIR=/tmp/bw_backup  # Override for Docker container
+    command: >
+      sh -c "
+        chmod +x /app/*.sh /app/scripts/*.sh &&
+        /app/setup-rclone.sh &&
+        /app/scripts/backup.sh
+      "

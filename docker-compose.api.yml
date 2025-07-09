@@ -52,6 +52,11 @@ services:
         condition: service_healthy
     networks:
       - bitwarden-backup-network
+    command: >
+      sh -c "
+        chmod +x /app/*.sh /app/scripts/*.sh &&
+        uvicorn api.main:app --host 0.0.0.0 --port 5050 --reload
+      "
 
 networks:
   bitwarden-backup-network:
