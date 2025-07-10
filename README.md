@@ -70,7 +70,8 @@ docker run --rm --env-file .env --pull always \
 git clone https://github.com/nikhilbadyal/bitwarden-backup.git
 cd bitwarden-backup
 # Copy your .env file here
-docker-compose up --build
+docker-compose up --build --no-cache
+# Added --no-cache to ensure latest image is always pulled.
 ```
 
 **Or with scripts:**
@@ -92,7 +93,8 @@ This project includes both a **modern web UI** and **REST API** for managing you
 **🖥️ Web UI + API (Recommended):**
 ```bash
 # Start everything (UI + API + Redis + Nginx)
-docker-compose -f docker-compose.full.yml up -d
+docker-compose -f docker-compose.full.yml up -d --build --no-cache
+# Added --build --no-cache to ensure latest image is always pulled and rebuilt.
 
 # Access the complete application
 # - Web UI: http://localhost:80
@@ -163,10 +165,12 @@ npm start
 **Option 3: Docker Compose (Separate Services)**
 ```bash
 # Start API only
-docker-compose -f docker-compose.api.yml up -d
+docker-compose -f docker-compose.api.yml up -d --build --no-cache
+# Added --build --no-cache to ensure latest image is always pulled and rebuilt.
 
 # Start UI only (in another terminal)
-docker-compose -f docker-compose.ui.yml up -d
+docker-compose -f docker-compose.ui.yml up -d --build --no-cache
+# Added --build --no-cache to ensure latest image is always pulled and rebuilt.
 
 # Access:
 # - UI: http://localhost:3000
