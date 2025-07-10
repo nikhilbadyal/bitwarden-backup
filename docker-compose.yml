@@ -13,7 +13,6 @@ services:
     restart: "no"  # Don't restart automatically for backup jobs
     security_opt:
       - no-new-privileges:true
-    read_only: true
     tmpfs:
       - /tmp:noexec,nosuid,size=100m
     cap_drop:
