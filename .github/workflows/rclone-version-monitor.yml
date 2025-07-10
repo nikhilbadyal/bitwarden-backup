@@ -29,7 +29,16 @@ jobs:
       - name: Get latest rclone version from GitHub API
         id: get-latest-version
         run: |
-          LATEST_VERSION=$(curl -s https://api.github.com/repos/rclone/rclone/releases/latest | jq -r '.tag_name')
+          set -eo pipefail
+          API_RESPONSE=$(curl -s "https://api.github.com/repos/rclone/rclone/releases/latest")
+          LATEST_VERSION=$(echo "${API_RESPONSE}" | jq -r '.tag_name')
+
+          if [ -z "${LATEST_VERSION}" ] || [ "${LATEST_VERSION}" = "null" ]; then
+            echo "::error::Failed to get latest rclone version. API response might be empty or malformed."
+            echo "Raw API Response: ${API_RESPONSE}" >&2
+            exit 1
+          fi
+
           echo "latest-version=${LATEST_VERSION}" >> $GITHUB_OUTPUT
           echo "Latest rclone version: ${LATEST_VERSION}"
 
