@@ -2,8 +2,6 @@ services:
   bitwarden-backup:
     image: nikhilbadyal/bitwarden-backup
     container_name: bitwarden-backup
-    volumes:
-      - .:/app:rw
     env_file:
       - .env
     environment:

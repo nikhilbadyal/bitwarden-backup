@@ -24,8 +24,6 @@ services:
     container_name: bitwarden-backup-api
     ports:
       - "5050:5050"
-    volumes:
-      - .:/app:rw
     env_file:
       - .env
     environment:
