@@ -107,16 +107,29 @@ if [[ ${#RCLONE_CONFIG_BASE64} -lt 10 ]]; then
 fi
 # Clean base64 string (remove surrounding quotes if present)
 CLEAN_RCLONE_CONFIG_BASE64="$RCLONE_CONFIG_BASE64"
+log INFO "DEBUG: Original base64 starts with: ${RCLONE_CONFIG_BASE64:0:20}..."
+log INFO "DEBUG: Original base64 ends with: ...${RCLONE_CONFIG_BASE64: -20}"
 if [[ "$RCLONE_CONFIG_BASE64" == \"*\" ]]; then
     CLEAN_RCLONE_CONFIG_BASE64="${RCLONE_CONFIG_BASE64%\"}"
     CLEAN_RCLONE_CONFIG_BASE64="${CLEAN_RCLONE_CONFIG_BASE64#\"}"
     log INFO "DEBUG: Removed surrounding quotes from base64 string"
     log INFO "DEBUG: Cleaned length: ${#CLEAN_RCLONE_CONFIG_BASE64}"
+    log INFO "DEBUG: Cleaned base64 starts with: ${CLEAN_RCLONE_CONFIG_BASE64:0:20}..."
+    log INFO "DEBUG: Cleaned base64 ends with: ...${CLEAN_RCLONE_CONFIG_BASE64: -20}"
+else
+    log INFO "DEBUG: No quotes found to remove"
 fi
 
 # Test base64 decoding with detailed error output
+log INFO "DEBUG: About to test base64 decoding..."
+log INFO "DEBUG: First 50 chars of cleaned base64: ${CLEAN_RCLONE_CONFIG_BASE64:0:50}..."
+log INFO "DEBUG: Last 50 chars of cleaned base64: ...${CLEAN_RCLONE_CONFIG_BASE64: -50}"
+
+# Temporarily disable strict mode for command substitution to prevent silent exit
+set +e
 base64_test_output=$(echo "$CLEAN_RCLONE_CONFIG_BASE64" | base64 -d 2>&1)
 base64_exit_code=$?
+set -e
 
 log INFO "DEBUG: Base64 decode exit code: $base64_exit_code"
 if [ $base64_exit_code -ne 0 ]; then
@@ -124,15 +137,55 @@ if [ $base64_exit_code -ne 0 ]; then
     log ERROR "Base64 decode error: $base64_test_output"
     log ERROR "Please check your base64 encoding. You can test with: echo 'your_base64' | base64 -d"
     log INFO "DEBUG: For comparison, try: echo '$RCLONE_CONFIG_BASE64' | base64 -d"
+    log INFO "DEBUG: Original base64 string (first 100 chars): ${RCLONE_CONFIG_BASE64:0:100}..."
+    log INFO "DEBUG: Cleaned base64 string (first 100 chars): ${CLEAN_RCLONE_CONFIG_BASE64:0:100}..."
+
+    # Additional debugging - check for common issues
+    if [[ "$CLEAN_RCLONE_CONFIG_BASE64" == *$'\n'* ]]; then
+        log ERROR "DEBUG: Base64 string contains newlines - this can cause decoding issues"
+    fi
+    if [[ "$CLEAN_RCLONE_CONFIG_BASE64" == *$'\r'* ]]; then
+        log ERROR "DEBUG: Base64 string contains carriage returns - this can cause decoding issues"
+    fi
+    if [[ "$CLEAN_RCLONE_CONFIG_BASE64" =~ [^A-Za-z0-9+/=] ]]; then
+        log ERROR "DEBUG: Base64 string contains invalid characters"
+    fi
+
+    # Try to determine what base64 command we're using
+    set +e
+    base64_version=$(base64 --version 2>&1 || echo "version unknown")
+    set -e
+    log INFO "DEBUG: Base64 command version: $base64_version"
+
     exit 1
 fi
 
 log SUCCESS "DEBUG: Base64 validation passed successfully"
 
 # Decode to temporary file first for validation
+log INFO "DEBUG: Creating temporary file for validation..."
+# Temporarily disable strict mode for mktemp to prevent silent exit
+set +e
 temp_config_file=$(mktemp "${PROJECT_RCLONE_CONFIG_DIR}/rclone.conf.tmp.XXXXXX")
-if ! echo "$CLEAN_RCLONE_CONFIG_BASE64" | base64 -d > "$temp_config_file"; then
+mktemp_exit_code=$?
+set -e
+
+if [ $mktemp_exit_code -ne 0 ] || [ -z "$temp_config_file" ]; then
+    log ERROR "Failed to create temporary file for rclone configuration validation."
+    log ERROR "mktemp exit code: $mktemp_exit_code"
+    log ERROR "Check permissions and available space in: $PROJECT_RCLONE_CONFIG_DIR"
+    exit 1
+fi
+log INFO "DEBUG: Created temp file: $temp_config_file"
+
+log INFO "DEBUG: Decoding base64 to temporary file..."
+if ! echo "$CLEAN_RCLONE_CONFIG_BASE64" | base64 -d > "$temp_config_file" 2>&1; then
     log ERROR "Failed to decode base64 rclone configuration to temporary file."
+    if [ -f "$temp_config_file" ]; then
+        temp_file_size=$(stat -c%s "$temp_config_file" 2>/dev/null || stat -f%z "$temp_config_file" 2>/dev/null || echo "unknown")
+        log ERROR "DEBUG: Temp file size after failed decode: $temp_file_size bytes"
+        log ERROR "DEBUG: Temp file contents (first 200 chars): $(head -c 200 "$temp_config_file" 2>/dev/null || echo 'unable to read')"
+    fi
     rm -f "$temp_config_file" || true
     exit 1
 fi
@@ -140,16 +193,28 @@ fi
 # Verify the decoded config file exists and is not empty
 if [ ! -s "$temp_config_file" ]; then
     log ERROR "Decoded rclone config is empty."
+    if [ -f "$temp_config_file" ]; then
+        temp_file_size=$(stat -c%s "$temp_config_file" 2>/dev/null || stat -f%z "$temp_config_file" 2>/dev/null || echo "unknown")
+        log ERROR "DEBUG: Temp file size: $temp_file_size bytes"
+    else
+        log ERROR "DEBUG: Temp file doesn't exist"
+    fi
     rm -f "$temp_config_file" || true
     exit 1
 fi
 
+log INFO "DEBUG: Decoded config file validation - checking for remote sections..."
 # Basic validation of config format
 if ! grep -q '^\[.*\]$' "$temp_config_file" 2>/dev/null; then
     log ERROR "Decoded config doesn't appear to be a valid rclone configuration (no remote sections found)."
+    temp_file_size=$(stat -c%s "$temp_config_file" 2>/dev/null || stat -f%z "$temp_config_file" 2>/dev/null || echo "unknown")
+    log ERROR "DEBUG: Temp file size: $temp_file_size bytes"
+    log ERROR "DEBUG: Temp file contents (first 500 chars): $(head -c 500 "$temp_config_file" 2>/dev/null || echo 'unable to read')"
     rm -f "$temp_config_file" || true
     exit 1
 fi
+
+log SUCCESS "DEBUG: Base64 decode and validation successful!"
 
 # Move temp file to final location
 if ! mv "$temp_config_file" "$PROJECT_RCLONE_CONFIG_FILE"; then

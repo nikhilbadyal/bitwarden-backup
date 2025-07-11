@@ -1274,14 +1274,29 @@ prune_old_backups_from_all_remotes() {
     log INFO "Pruning old backups from all remotes..."
 
     local available_remotes
+    # Temporarily disable strict mode for command substitution to prevent silent exit
+    set +e
     available_remotes=$(get_available_remotes)
-    if [ -z "$available_remotes" ]; then
-        log WARN "No remotes found for pruning."
+    local remotes_exit_code=$?
+    set -e
+
+    if [ $remotes_exit_code -ne 0 ] || [ -z "$available_remotes" ]; then
+        log WARN "Failed to get available remotes for pruning (exit code: $remotes_exit_code)."
+        log WARN "Skipping pruning operation."
         return 0
     fi
 
     local total_remotes
+    # Temporarily disable strict mode for command substitution to prevent silent exit
+    set +e
     total_remotes=$(echo "$available_remotes" | wc -l | tr -d ' ')
+    local count_exit_code=$?
+    set -e
+
+    if [ $count_exit_code -ne 0 ] || [ -z "$total_remotes" ]; then
+        log WARN "Failed to count remotes for pruning, attempting to continue..."
+        total_remotes="unknown"
+    fi
     log INFO "Starting pruning process for $total_remotes remotes..."
 
     # Use parallel processing if more than threshold remotes
@@ -1345,14 +1360,32 @@ main() {
 
     # Calculate hash of the encrypted backup
     local current_backup_hash
+    # Temporarily disable strict mode for command substitution to prevent silent exit
+    set +e
     current_backup_hash=$(get_local_file_hash "$COMPRESSED_FILE")
+    local hash_exit_code=$?
+    set -e
+
+    if [ $hash_exit_code -ne 0 ] || [ -z "$current_backup_hash" ]; then
+        log ERROR "Failed to calculate hash of encrypted backup file: $COMPRESSED_FILE"
+        log ERROR "Hash calculation exit code: $hash_exit_code"
+        log ERROR "Ensure the file exists and SHA256 utilities are available."
+        exit "$EXIT_INVALID_BACKUP"
+    fi
     log DEBUG "Current encrypted backup hash: $current_backup_hash"
 
     # Get available remotes
     local available_remotes
+    # Temporarily disable strict mode for command substitution to prevent silent exit
+    set +e
     available_remotes=$(get_available_remotes)
-    if [ -z "$available_remotes" ]; then
-        log ERROR "No remotes found in configuration. Cannot proceed."
+    local remotes_exit_code=$?
+    set -e
+
+    if [ $remotes_exit_code -ne 0 ] || [ -z "$available_remotes" ]; then
+        log ERROR "Failed to get available remotes from rclone configuration."
+        log ERROR "get_available_remotes exit code: $remotes_exit_code"
+        log ERROR "Check your rclone configuration and PROJECT_RCLONE_CONFIG_FILE."
         exit "$EXIT_UNEXPECTED"
     fi
 
@@ -1364,18 +1397,48 @@ main() {
     done <<< "$available_remotes"
 
     local remote_count
+    # Temporarily disable strict mode for command substitution to prevent silent exit
+    set +e
     remote_count=$(echo "$available_remotes" | wc -l | tr -d ' ')
+    local count_exit_code=$?
+    set -e
+
+    if [ $count_exit_code -ne 0 ] || [ -z "$remote_count" ]; then
+        log WARN "Failed to count remotes, using array length instead."
+        remote_count=${#ALL_REMOTES[@]}
+    fi
     log INFO "Found $remote_count configured remote(s) for backup operations."
 
     # Check for changes across all remotes
     local changes_result
+    # Temporarily disable strict mode for command substitution to prevent silent exit
+    set +e
     changes_result=$(check_changes_across_remotes "$current_backup_hash" "$available_remotes")
+    local changes_exit_code=$?
+    set -e
+
+    if [ $changes_exit_code -ne 0 ]; then
+        log ERROR "Failed to check for changes across remotes."
+        log ERROR "check_changes_across_remotes exit code: $changes_exit_code"
+        log ERROR "Backup process cannot continue safely."
+        exit "$EXIT_UNEXPECTED"
+    fi
 
     if [ -n "$changes_result" ]; then
         changes_detected=true
         local remotes_needing_updates_count
+        # Temporarily disable strict mode for command substitution to prevent silent exit
+        set +e
         remotes_needing_updates_count=$(echo "$changes_result" | wc -l | tr -d ' ')
-        log INFO "Found $remotes_needing_updates_count remote(s) needing updates. Proceeding with selective backup."
+        local updates_count_exit_code=$?
+        set -e
+
+        if [ $updates_count_exit_code -ne 0 ] || [ -z "$remotes_needing_updates_count" ]; then
+            log WARN "Failed to count remotes needing updates, using default message."
+            log INFO "Found remotes needing updates. Proceeding with selective backup."
+        else
+            log INFO "Found $remotes_needing_updates_count remote(s) needing updates. Proceeding with selective backup."
+        fi
 
         # Upload to specific remotes only (backup already created by export_data)
         upload_backup_to_specific_remotes "$changes_result"
@@ -1397,11 +1460,25 @@ main() {
     else
          # Show actual count of updated remotes instead of total remotes
          local updated_remotes_count
+         # Temporarily disable strict mode for command substitution to prevent silent exit
+         set +e
          updated_remotes_count=$(echo "$changes_result" | wc -l | tr -d ' ')
-         if [ -n "$COMPRESSED_FILE" ] && [ -f "$COMPRESSED_FILE" ]; then
-            log SUCCESS "New backup file uploaded to $updated_remotes_count out of $remote_count remotes: $(basename "$COMPRESSED_FILE")"
+         local final_count_exit_code=$?
+         set -e
+
+         if [ $final_count_exit_code -ne 0 ] || [ -z "$updated_remotes_count" ]; then
+             log WARN "Failed to count updated remotes for final message."
+             if [ -n "$COMPRESSED_FILE" ] && [ -f "$COMPRESSED_FILE" ]; then
+                log SUCCESS "New backup file uploaded to remotes: $(basename "$COMPRESSED_FILE")"
+             else
+                 log SUCCESS "New backup was processed and uploaded to remotes."
+             fi
          else
-             log SUCCESS "New backup was processed and uploaded to $updated_remotes_count out of $remote_count remotes."
+             if [ -n "$COMPRESSED_FILE" ] && [ -f "$COMPRESSED_FILE" ]; then
+                log SUCCESS "New backup file uploaded to $updated_remotes_count out of $remote_count remotes: $(basename "$COMPRESSED_FILE")"
+             else
+                 log SUCCESS "New backup was processed and uploaded to $updated_remotes_count out of $remote_count remotes."
+             fi
          fi
     fi
 
