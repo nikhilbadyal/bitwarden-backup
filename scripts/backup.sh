@@ -163,6 +163,13 @@ cleanup() {
         rm -f "$COMPRESSED_FILE" || log WARN "Failed to remove temporary compressed/encrypted file: $COMPRESSED_FILE"
     fi
 
+    # Clean up any temporary jq files that might be left behind
+    if [ -n "${BACKUP_DIR:-}" ] && [ -d "${BACKUP_DIR}" ]; then
+        log DEBUG "Cleaning up temporary jq files..."
+        find "${BACKUP_DIR}" -name "jq_temp_*" -type f -delete 2>/dev/null || true
+        find "${BACKUP_DIR}" -name "org_temp_*" -type f -delete 2>/dev/null || true
+    fi
+
     # Optional: Attempt to overwrite sensitive variables in memory before unsetting.
     declare -a sensitive_vars=(BW_SESSION BW_CLIENTID BW_CLIENTSECRET BW_PASSWORD ENCRYPTION_PASSWORD)
     for var in "${sensitive_vars[@]}"; do
@@ -1013,8 +1020,21 @@ export_data() {
 
                     # Validate organization export (allow empty organizations)
                     if [ -n "$org_export" ] && echo "$org_export" | jq empty >/dev/null 2>&1; then
-                        # Add organization data to organizations object
-                        org_exports=$(echo "$org_exports" | jq --argjson org "$org_export" --arg orgid "$org_id" '.[$orgid] = $org')
+                        # Add organization data to organizations object using temporary files
+                        local temp_org_base="${BACKUP_DIR}/org_temp_${TIMESTAMP}_${org_id}"
+                        local temp_org_export="${temp_org_base}_export.json"
+                        local temp_org_current="${temp_org_base}_current.json"
+
+                        # Write current org_exports and new org_export to temp files
+                        echo "$org_exports" > "$temp_org_current"
+                        echo "$org_export" > "$temp_org_export"
+
+                        # Use jq with slurpfile to avoid command line argument limits
+                        org_exports=$(jq --slurpfile org "$temp_org_export" --arg orgid "$org_id" '.[$orgid] = $org[0]' "$temp_org_current")
+
+                        # Clean up temporary files
+                        rm -f "$temp_org_export" "$temp_org_current" 2>/dev/null || true
+
                         export_count=$((export_count + 1))
                         log SUCCESS "Organization $org_id exported successfully"
                     else
@@ -1037,15 +1057,36 @@ export_data() {
         log INFO "Creating consolidated backup with personal and organization data..."
         local consolidated_data='{"personal": null, "organizations": {}}'
 
+        # Use temporary files to avoid "Argument list too long" error with large exports
+        local temp_base="${BACKUP_DIR}/jq_temp_${TIMESTAMP}"
+        local temp_consolidated="${temp_base}_consolidated.json"
+        local temp_personal="${temp_base}_personal.json"
+        local temp_orgs="${temp_base}_orgs.json"
+
+        # Write consolidated_data to temp file
+        echo "$consolidated_data" > "$temp_consolidated"
+
         if [[ "$EXPORT_PERSONAL" == "true" ]]; then
-            consolidated_data=$(echo "$consolidated_data" | jq --argjson personal "$personal_export" '.personal = $personal')
+            # Write personal export to temp file
+            echo "$personal_export" > "$temp_personal"
+            # Use jq with slurpfile to read from file instead of command line
+            consolidated_data=$(jq --slurpfile personal "$temp_personal" '.personal = $personal[0]' "$temp_consolidated")
+            echo "$consolidated_data" > "$temp_consolidated"
         fi
 
         if [[ -n "$org_exports" && "$org_exports" != "{}" ]]; then
-            consolidated_data=$(echo "$consolidated_data" | jq --argjson orgs "$org_exports" '.organizations = $orgs')
+            # Write org exports to temp file
+            echo "$org_exports" > "$temp_orgs"
+            # Use jq with slurpfile to read from file instead of command line
+            consolidated_data=$(jq --slurpfile orgs "$temp_orgs" '.organizations = $orgs[0]' "$temp_consolidated")
+            echo "$consolidated_data" > "$temp_consolidated"
         fi
 
         final_data="$consolidated_data"
+
+        # Clean up temporary files
+        rm -f "$temp_consolidated" "$temp_personal" "$temp_orgs" 2>/dev/null || true
+
         log INFO "Using consolidated format for $export_count export(s)"
     else
         # Use standard format for personal-only exports
