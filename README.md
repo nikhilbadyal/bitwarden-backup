@@ -521,6 +521,45 @@ The backup script will automatically:
 docker-compose up --build
 ```
 
+**Automated Docker Compose with Cron:**
+
+For automated backups using Docker Compose with cron scheduling, you have several options:
+
+Add this to your host system's crontab:
+
+```crontab
+# Daily backup at 3:00 AM using Docker Compose
+0 3 * * * cd /path/to/bitwarden-backup && docker-compose up --build --force-recreate >> /var/log/bitwarden_backup.log 2>&1
+
+# Weekly backup (Sundays at 2:00 AM)
+0 2 * * 0 cd /path/to/bitwarden-backup && docker-compose up --build --force-recreate >> /var/log/bitwarden_backup.log 2>&1
+
+# Multiple daily backups (every 6 hours)
+0 */6 * * * cd /path/to/bitwarden-backup && docker-compose up --build --force-recreate >> /var/log/bitwarden_backup.log 2>&1
+```
+
+**Cron Schedule Examples:**
+
+```crontab
+# Every day at 3:00 AM
+0 3 * * *
+
+# Every 12 hours (noon and midnight)
+0 */12 * * *
+
+# Every Monday at 2:00 AM
+0 2 * * 1
+
+# Every 1st day of the month at 1:00 AM
+0 1 1 * *
+
+# Every 15 minutes (for testing)
+*/15 * * * *
+
+# Multiple times per day (6 AM, 2 PM, 10 PM)
+0 6,14,22 * * *
+```
+
 **GitHub Actions Automation:**
 
 1. Fork this repository
