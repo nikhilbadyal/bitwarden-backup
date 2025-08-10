@@ -140,7 +140,7 @@ log() {
 }
 
 # Function to perform cleanup actions on script exit
-# shellcheck disable=SC2317
+# shellcheck disable=SC2317,SC2329
 cleanup() {
     # Capture the exit code from the script before the trap was triggered
     # This allows the trap to return the original exit status
@@ -1215,7 +1215,7 @@ get_local_file_hash() {
 }
 
 # --- Notification Function (requires 'apprise' command) ---
-# shellcheck disable=SC2317
+# shellcheck disable=SC2317,SC2329
 send_notification() {
     local level="$1"
     local message="$2"
