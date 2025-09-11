@@ -266,7 +266,7 @@ async def restore_backup(
             stderr=asyncio.subprocess.PIPE,
             env={**os.environ, "ENCRYPTION_PASSWORD": encryption_password},
         )
-        stdout, stderr = await process.communicate()
+        _stdout, stderr = await process.communicate()
 
         if process.returncode != 0:
             error_message = stderr.decode() if stderr else "Unknown error occurred"
