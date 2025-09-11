@@ -128,8 +128,8 @@ async def health() -> JSONResponse:
     It always checks all critical components and returns proper HTTP status codes.
     """
     # Get component statuses
-    redis_status, redis_response_time = get_redis_status()
-    rclone_status, rclone_response_time = get_rclone_status()
+    redis_status, _redis_response_time = get_redis_status()
+    rclone_status, _rclone_response_time = get_rclone_status()
 
     # Calculate uptime
     uptime_seconds = time.time() - startup_time
