@@ -4,6 +4,12 @@ on:
   schedule:
     - cron: '0 2 * * *'
   workflow_dispatch:
+    inputs:
+      debug_session:
+        description: 'Run a tmate debug session'
+        required: false
+        type: boolean
+        default: false
 
 jobs:
   backup:
@@ -19,27 +25,34 @@ jobs:
           echo "::add-mask::$(head -n 3 .env)"
           echo "Generated .env file with $(wc -l .env | awk '{print $1}') variables"
 
+      - name: Tmate debugging session
+        if: github.event_name == 'workflow_dispatch' && github.event.inputs.debug_session == true
+        uses: mxschmitt/action-tmate@v3
+
       - name: Set up Docker Compose
+        if: github.event.inputs.debug_session != true
         run: |
           docker compose version
 
       - name: Run pre-commit shellcheck
+        if: github.event.inputs.debug_session != true
         run: |
           pip install pre-commit
           pre-commit run -a
 
       - name: Run backup with compose
+        if: github.event.inputs.debug_session != true
         run: |
           docker compose -f docker-compose.yml up --build --force-recreate
 
       - name: Save logs
-        if: always()
+        if: always() && github.event.inputs.debug_session != true
         run: |
           mkdir -p logs
           docker compose logs > logs/backup-$(date +%Y%m%d-%H%M%S).log 2>&1 || true
 
       - name: Upload logs artifact
-        if: always()
+        if: always() && github.event.inputs.debug_session != true
         uses: actions/upload-artifact@v4.6.2
         with:
           name: backup-logs
