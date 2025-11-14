@@ -1,7 +1,7 @@
-annotated-types>=0.6.0
-fastapi>=0.115.0
-pydantic>=2.11.0
-pydantic-extra-types>=2.9.0
-python-dotenv>=1.0.0
-redis>=5.0.0
-uvicorn[standard]>=0.30.0
+annotated-types>=0.7.0
+fastapi>=0.121.2
+pydantic>=2.12.4
+pydantic-extra-types>=2.10.6
+python-dotenv>=1.2.1
+redis>=7.0.1
+uvicorn[standard]>=0.38.0
