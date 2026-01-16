@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   Table,
   TableBody,
@@ -34,6 +35,7 @@ import BackupDetailsModal from "./BackupDetailsModal";
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:5050";
 
 function Backups({ token }) {
+  const navigate = useNavigate();
   const [backups, setBackups] = useState([]);
   const [remotes, setRemotes] = useState([]);
   const [selectedRemote, setSelectedRemote] = useState("");
@@ -279,36 +281,8 @@ function Backups({ token }) {
   };
 
   const handleTriggerBackup = () => {
-    fetch(`${API_BASE_URL}/api/v1/backups/trigger-backup`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
-      },
-    })
-      .then((response) => {
-        if (!response.ok) {
-          return response.text().then((text) => {
-            let errorMessage = `HTTP ${response.status}`;
-            try {
-              const errorData = JSON.parse(text);
-              errorMessage += `: ${errorData.detail || errorData.message || response.statusText}`;
-            } catch {
-              errorMessage += `: ${response.statusText || "Unknown error"}`;
-            }
-            throw new Error(errorMessage);
-          });
-        }
-        return response.json();
-      })
-      .then((data) => {
-        alert(data.message);
-        fetchBackups(selectedRemote, page, searchQuery, minDate, maxDate); // Refresh the list after backup
-      })
-      .catch((error) => {
-        console.error("Error triggering backup:", error);
-        alert(`Failed to trigger backup: ${error.message}`);
-      });
+    // Navigate to the Backup Jobs page where users can trigger and monitor backups
+    navigate("/jobs");
   };
 
   const handleOpenModal = (filename) => {

@@ -13,7 +13,7 @@ from fastapi.responses import JSONResponse
 from pydantic import ValidationError
 
 from .config import load_env, setup_rclone_config
-from .routes import backups, remotes, system
+from .routes import backups, jobs, remotes, system
 
 # Global variables for tracking application state
 start_time = time.time()
@@ -83,6 +83,10 @@ app = FastAPI(
         {
             "name": "Remotes",
             "description": "Remote storage provider management",
+        },
+        {
+            "name": "Backup Jobs",
+            "description": "Async backup job management with real-time progress",
         },
     ],
     lifespan=lifespan,
@@ -229,6 +233,12 @@ app.include_router(
     remotes.router,
     prefix="/api/v1",
     tags=["Remotes"],
+)
+
+app.include_router(
+    jobs.router,
+    prefix="/api/v1",
+    tags=["Backup Jobs"],
 )
 
 

@@ -192,10 +192,69 @@ class CacheRefreshResponse(APIResponse):
 
 
 class TriggerBackupResponse(APIResponse):
-    """Response model for triggering a backup."""
+    """Response model for triggering a backup (legacy synchronous)."""
 
     message: str = "Backup triggered successfully"
     backup_id: str | None = Field(None, description="Unique backup identifier")
+
+
+class BackupJobResponse(BaseAPIModel):
+    """Response model for async backup job creation."""
+
+    job_id: str = Field(description="Unique job identifier")
+    status: Literal["pending", "running", "completed", "failed", "cancelled"] = Field(
+        description="Current job status",
+    )
+    message: str = Field(description="Status message")
+    created_at: datetime = Field(description="Job creation timestamp")
+
+
+class BackupJobStatusResponse(BaseAPIModel):
+    """Detailed backup job status response."""
+
+    id: str = Field(description="Unique job identifier")
+    status: Literal["pending", "running", "completed", "failed", "cancelled"] = Field(
+        description="Current job status",
+    )
+    progress: int = Field(ge=0, le=100, description="Progress percentage (0-100)")
+    current_step: str = Field(description="Current operation being performed")
+    created_at: str = Field(description="Job creation timestamp")
+    started_at: str | None = Field(None, description="Job start timestamp")
+    completed_at: str | None = Field(None, description="Job completion timestamp")
+    error: str | None = Field(None, description="Error message if failed")
+    result: dict[str, Any] | None = Field(None, description="Result data if completed")
+
+
+class BackupJobLogEntry(BaseAPIModel):
+    """Single log entry for a backup job."""
+
+    timestamp: str = Field(description="Log entry timestamp")
+    level: Literal["INFO", "WARN", "ERROR", "SUCCESS", "DEBUG"] = Field(
+        description="Log level",
+    )
+    message: str = Field(description="Log message")
+
+
+class BackupJobLogsResponse(BaseAPIModel):
+    """Response model for backup job logs."""
+
+    job_id: str = Field(description="Job identifier")
+    logs: list[BackupJobLogEntry] = Field(description="List of log entries")
+    total_logs: int = Field(description="Total number of log entries")
+
+
+class BackupJobListResponse(BaseAPIModel):
+    """Response model for listing backup jobs."""
+
+    jobs: list[BackupJobStatusResponse] = Field(description="List of backup jobs")
+    total: int = Field(description="Total number of jobs")
+
+
+class CancelJobResponse(APIResponse):
+    """Response model for job cancellation."""
+
+    job_id: str = Field(description="Cancelled job identifier")
+    message: str = "Job cancelled successfully"
 
 
 class HealthResponse(BaseAPIModel):

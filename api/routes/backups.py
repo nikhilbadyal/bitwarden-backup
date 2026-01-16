@@ -308,9 +308,20 @@ def refresh_cache(remote: str, _: Annotated[bool, Depends(get_token)]) -> CacheR
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to refresh cache - {e}.") from e
 
-@router.post("/trigger-backup")
+@router.post(
+    "/trigger-backup",
+    deprecated=True,
+    summary="Trigger backup (DEPRECATED - use /api/v1/jobs/trigger instead)",
+    description="""
+    **⚠️ DEPRECATED**: This synchronous endpoint blocks until backup completes.
+    Use `POST /api/v1/jobs/trigger` for async backup with real-time progress.
+
+    This endpoint will wait for the entire backup process to complete before returning,
+    which can take several minutes depending on vault size and number of remotes.
+    """,
+)
 def trigger_backup(_: Annotated[bool, Depends(get_token)]) -> TriggerBackupResponse:
-    """Trigger a backup process by running the setup and backup scripts."""
+    """Trigger a backup process (DEPRECATED - blocks until completion)."""
     clear_rclone_cache()
     setup = subprocess.run(["./setup-rclone.sh"], check=False, capture_output=True, text=True)
     backup = subprocess.run(["./scripts/backup.sh"], check=False, capture_output=True, text=True)

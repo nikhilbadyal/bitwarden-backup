@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from "react";
 import { BrowserRouter as Router, Routes, Route, Link, Navigate } from "react-router-dom";
 import { Box, CssBaseline, Drawer, AppBar, Toolbar, List, ListItem, ListItemIcon, ListItemText, Typography, Divider, Button } from "@mui/material";
-import { HealthAndSafety, Backup, Cloud, ExitToApp, Settings } from "@mui/icons-material";
+import { HealthAndSafety, Backup, Cloud, ExitToApp, Settings, PlayCircle } from "@mui/icons-material";
 import Health from "./components/Health";
 import Remotes from "./components/Remotes";
 import Backups from "./components/Backups";
+import BackupJobs from "./components/BackupJobs";
 import Login from "./components/Login";
 import PrivateRoute from "./components/PrivateRoute";
 import RcloneConfigConverter from "./components/RcloneConfigConverter";
@@ -73,6 +74,7 @@ function App() {
 
   const menuItems = [
     { text: "Health", icon: <HealthAndSafety />, path: "/health" },
+    { text: "Backup Jobs", icon: <PlayCircle />, path: "/jobs" },
     { text: "Remotes", icon: <Cloud />, path: "/remotes" },
     { text: "Backups", icon: <Backup />, path: "/backups" },
     { text: "Rclone Config", icon: <Settings />, path: "/rclone-config" },
@@ -144,6 +146,7 @@ function MainLayout({ menuItems, handleLogout, token }) {
           <Routes>
             <Route path="/" element={<Navigate to="/health" />} />
             <Route path="/health" element={<Health token={token} />} />
+            <Route path="/jobs" element={<BackupJobs token={token} />} />
             <Route path="/remotes" element={<Remotes token={token} />} />
             <Route path="/backups" element={<Backups token={token} />} />
             <Route path="/rclone-config" element={<RcloneConfigConverter token={token} />} />
