@@ -34,7 +34,7 @@ function Remotes({ token }) {
 
   const fetchRemotes = useCallback(() => {
     setLoadingRemotes(true);
-    fetch(`${API_BASE_URL}/api/v1/remotes`, {
+    fetch(`${API_BASE_URL}/api/v1/remotes/`, {
       headers: {
         Authorization: `Bearer ${token}`,
       },
@@ -57,7 +57,7 @@ function Remotes({ token }) {
   const checkAllRemotes = () => {
     setCheckingAll(true);
     setRemoteStatuses({}); // Clear previous statuses
-    fetch(`${API_BASE_URL}/api/v1/remotes/check-all`, {
+    fetch(`${API_BASE_URL}/api/v1/remotes/check-all/`, {
       headers: {
         Authorization: `Bearer ${token}`,
       },
@@ -79,7 +79,7 @@ function Remotes({ token }) {
 
   const checkIndividualRemote = (remote) => {
     setCheckingIndividual((prev) => ({ ...prev, [remote]: true }));
-    fetch(`${API_BASE_URL}/api/v1/remotes/${remote}/check`, {
+    fetch(`${API_BASE_URL}/api/v1/remotes/${remote}/check/`, {
       headers: {
         Authorization: `Bearer ${token}`,
       },
@@ -99,7 +99,7 @@ function Remotes({ token }) {
 
   const fetchRemoteUsage = (remote) => {
     setRemoteUsages((prev) => ({ ...prev, [remote]: { loading: true } }));
-    fetch(`${API_BASE_URL}/api/v1/remotes/${remote}/usage`, {
+    fetch(`${API_BASE_URL}/api/v1/remotes/${remote}/usage/`, {
       headers: {
         Authorization: `Bearer ${token}`,
       },

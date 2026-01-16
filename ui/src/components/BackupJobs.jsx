@@ -63,7 +63,7 @@ function BackupJobs({ token }) {
   // Fetch jobs list
   const fetchJobs = useCallback(async () => {
     try {
-      const response = await fetch(`${API_BASE_URL}/api/v1/jobs?limit=20`, {
+      const response = await fetch(`${API_BASE_URL}/api/v1/jobs/?limit=20`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -105,7 +105,7 @@ function BackupJobs({ token }) {
       setActiveJobStatus(null);
 
       // Create SSE connection
-      const eventSource = new EventSource(`${API_BASE_URL}/api/v1/jobs/${jobId}/stream?token=${token}`);
+      const eventSource = new EventSource(`${API_BASE_URL}/api/v1/jobs/${jobId}/stream/?token=${token}`);
       eventSourceRef.current = eventSource;
 
       eventSource.addEventListener("status", (event) => {
@@ -156,7 +156,7 @@ function BackupJobs({ token }) {
     setError(null);
 
     try {
-      const response = await fetch(`${API_BASE_URL}/api/v1/jobs/trigger`, {
+      const response = await fetch(`${API_BASE_URL}/api/v1/jobs/trigger/`, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${token}`,
@@ -189,7 +189,7 @@ function BackupJobs({ token }) {
     if (!window.confirm("Are you sure you want to cancel this backup job?")) return;
 
     try {
-      const response = await fetch(`${API_BASE_URL}/api/v1/jobs/${jobId}/cancel`, {
+      const response = await fetch(`${API_BASE_URL}/api/v1/jobs/${jobId}/cancel/`, {
         method: "POST",
         headers: { Authorization: `Bearer ${token}` },
       });
@@ -209,7 +209,7 @@ function BackupJobs({ token }) {
   // Fetch logs for a completed job
   const fetchJobLogs = async (jobId) => {
     try {
-      const response = await fetch(`${API_BASE_URL}/api/v1/jobs/${jobId}/logs?limit=500`, {
+      const response = await fetch(`${API_BASE_URL}/api/v1/jobs/${jobId}/logs/?limit=500`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);

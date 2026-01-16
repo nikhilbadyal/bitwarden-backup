@@ -50,7 +50,7 @@ function Health({ token }) {
   const handleClearCache = async () => {
     if (window.confirm("Are you sure you want to clear the system cache? This operation cannot be undone.")) {
       try {
-        const response = await fetch(`${API_BASE_URL}/maintenance/cache/clear`, {
+        const response = await fetch(`${API_BASE_URL}/maintenance/cache/clear/`, {
           method: "POST",
           headers: {
             Authorization: `Bearer ${token}`,

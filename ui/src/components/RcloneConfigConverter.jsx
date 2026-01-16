@@ -18,7 +18,7 @@ function RcloneConfigConverter({ token }) {
     setError("");
     setBase64Config("");
 
-    fetch(`${API_BASE_URL}/api/v1/backups/rclone/config/base64`, {
+    fetch(`${API_BASE_URL}/api/v1/backups/rclone/config/base64/`, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${token}`,

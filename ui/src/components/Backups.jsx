@@ -53,7 +53,7 @@ function Backups({ token }) {
 
   useEffect(() => {
     setLoadingRemotes(true);
-    fetch(`${API_BASE_URL}/api/v1/remotes`, {
+    fetch(`${API_BASE_URL}/api/v1/remotes/`, {
       headers: {
         Authorization: `Bearer ${token}`,
       },
@@ -75,7 +75,7 @@ function Backups({ token }) {
   const fetchBackups = useCallback(
     (remote, pageNum, search, minDt, maxDt) => {
       setLoadingBackups(true);
-      let url = `${API_BASE_URL}/api/v1/backups?remote=${remote}&page=${pageNum}&page_size=${pageSize}&sort_by=ModTime&sort_order=desc`;
+      let url = `${API_BASE_URL}/api/v1/backups/?remote=${remote}&page=${pageNum}&page_size=${pageSize}&sort_by=ModTime&sort_order=desc`;
       if (search) {
         url += `&search=${search}`;
       }
@@ -160,7 +160,7 @@ function Backups({ token }) {
   };
 
   const handleDownload = (filename) => {
-    fetch(`${API_BASE_URL}/api/v1/backups/download/${selectedRemote}/${filename}`, {
+    fetch(`${API_BASE_URL}/api/v1/backups/download/${selectedRemote}/${filename}/`, {
       headers: {
         Authorization: `Bearer ${token}`,
       },
@@ -211,7 +211,7 @@ function Backups({ token }) {
 
   const handleDelete = (filename) => {
     if (window.confirm(`Are you sure you want to delete ${filename}?`)) {
-      fetch(`${API_BASE_URL}/api/v1/backups/${selectedRemote}/${filename}`, {
+      fetch(`${API_BASE_URL}/api/v1/backups/${selectedRemote}/${filename}/`, {
         method: "DELETE",
         headers: {
           Authorization: `Bearer ${token}`,
@@ -248,7 +248,7 @@ function Backups({ token }) {
       alert("Please select a remote first.");
       return;
     }
-    fetch(`${API_BASE_URL}/api/v1/backups/refresh-cache?remote=${selectedRemote}`, {
+    fetch(`${API_BASE_URL}/api/v1/backups/refresh-cache/?remote=${selectedRemote}`, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${token}`,
@@ -286,7 +286,7 @@ function Backups({ token }) {
   };
 
   const handleOpenModal = (filename) => {
-    fetch(`${API_BASE_URL}/api/v1/backups/${selectedRemote}/${filename}`, {
+    fetch(`${API_BASE_URL}/api/v1/backups/${selectedRemote}/${filename}/`, {
       headers: {
         Authorization: `Bearer ${token}`,
       },
@@ -323,7 +323,7 @@ function Backups({ token }) {
 
   const handleRestore = (filename) => {
     if (window.confirm(`Are you sure you want to restore ${filename}? This will download the decrypted backup file.`)) {
-      fetch(`${API_BASE_URL}/api/v1/backups/restore/${selectedRemote}/${filename}`, {
+      fetch(`${API_BASE_URL}/api/v1/backups/restore/${selectedRemote}/${filename}/`, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${token}`,
@@ -417,7 +417,7 @@ function Backups({ token }) {
     }
 
     if (window.confirm(`Are you sure you want to delete ${selectedBackups.length} selected backups?`)) {
-      fetch(`${API_BASE_URL}/api/v1/backups/${selectedRemote}/bulk-delete`, {
+      fetch(`${API_BASE_URL}/api/v1/backups/${selectedRemote}/bulk-delete/`, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${token}`,
