@@ -208,7 +208,7 @@ def delete_backup(remote: str, filename: str, _: Annotated[bool, Depends(get_tok
         redis_client.delete(cache_key)
         return {"status": "ok", "message": f"Deleted {filename}"}
     raise HTTPException(status_code=500,
-                        detail=f"Failed to delete backup: {result.stderr if result.stderr else 'Delete failed'}")
+                        detail=f"Failed to delete backup: {result.stderr or 'Delete failed'}")
 
 @router.post("/restore/{remote}/{filename:path}")
 async def restore_backup(
@@ -365,7 +365,7 @@ def bulk_delete_backups(
             message = f"Deleted {filename}"
         else:
             status = "error"
-            message = result.stderr if result.stderr else "Delete failed"
+            message = result.stderr or "Delete failed"
         results.append(
             BulkDeleteResult(
                 filename=filename,
