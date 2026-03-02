@@ -6,13 +6,13 @@ import os
 import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 
 from api.cache import get_redis_client
 
 
-class JobStatus(str, Enum):
+class JobStatus(StrEnum):
     """Backup job status enumeration."""
 
     PENDING = "pending"
