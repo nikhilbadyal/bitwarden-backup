@@ -9,6 +9,7 @@ import tempfile
 from pathlib import Path
 from typing import Annotated, Any, Literal
 
+import anyio
 from fastapi import APIRouter, Body, Depends, HTTPException
 from fastapi.responses import FileResponse
 
@@ -241,7 +242,8 @@ async def restore_backup(
     scripts_dir = get_scripts_dir()
     script_path = scripts_dir / "restore-backup.sh"
 
-    if not script_path.exists():
+    # Use anyio.Path to avoid ASYNC240 (blocking pathlib.Path I/O in async func)
+    if not await anyio.Path(script_path).exists():
         raise HTTPException(status_code=500, detail="Restore script not found.")
 
     # Create a temporary directory securely, then create file inside it
@@ -272,7 +274,8 @@ async def restore_backup(
             error_message = stderr.decode() if stderr else "Unknown error occurred"
             _raise_process_error(error_message)
 
-        if not output_file.exists():
+        # Use anyio.Path to avoid ASYNC240 (blocking pathlib.Path I/O in async func)
+        if not await anyio.Path(output_file).exists():
             _raise_output_missing_error()
 
         return FileResponse(
@@ -282,7 +285,8 @@ async def restore_backup(
         )
     except Exception as e:
         # Clean up the temporary directory on error
-        if Path(temp_dir).exists():
+        # Use anyio.Path to avoid ASYNC240 (blocking pathlib.Path I/O in async func)
+        if await anyio.Path(temp_dir).exists():
             shutil.rmtree(temp_dir)
         if isinstance(e, HTTPException):
             raise
