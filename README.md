@@ -44,8 +44,9 @@ To also backup organization vaults, add these optional variables:
 # Enable organization exports
 EXPORT_ORGANIZATIONS=true
 
-# List organization IDs to export (comma-separated, no spaces)
-# Get org IDs with: bw list organizations --session $BW_SESSION
+# Optional: list organization IDs to export (comma-separated, no spaces)
+# If omitted, all accessible organizations are auto-discovered and exported
+# Get org IDs manually with: bw list organizations --session $BW_SESSION
 BW_ORGANIZATION_IDS=12345678-1234-1234-1234-123456789012,87654321-4321-4321-4321-210987654321
 ```
 
@@ -367,11 +368,11 @@ BW_IDENTITY="https://identity.example.com"
 
 ### Export Configuration Variables
 
-| Variable               | Description                                  | Default | Example                     |
-|:-----------------------|:---------------------------------------------|:--------|:----------------------------|
-| `EXPORT_PERSONAL`      | Export personal vault                        | `true`  | `true` or `false`           |
-| `EXPORT_ORGANIZATIONS` | Export organization vaults                   | `false` | `true` or `false`           |
-| `BW_ORGANIZATION_IDS`  | Organization IDs to export (comma-separated) | None    | `12345678-...,87654321-...` |
+| Variable               | Description                                                               | Default | Example                     |
+|:-----------------------|:--------------------------------------------------------------------------|:--------|:----------------------------|
+| `EXPORT_PERSONAL`      | Export personal vault                                                     | `true`  | `true` or `false`           |
+| `EXPORT_ORGANIZATIONS` | Export organization vaults                                                | `false` | `true` or `false`           |
+| `BW_ORGANIZATION_IDS`  | Optional org IDs to export; empty means auto-discover all accessible orgs | None    | `12345678-...,87654321-...` |
 
 **Format Details:**
 - When `EXPORT_ORGANIZATIONS=false` (default): Uses standard Bitwarden export format

@@ -955,10 +955,65 @@ export_data() {
         exit "$EXIT_EXPORT_FAILED"
     fi
 
-    # Determine if we need consolidated format (when organizations are exported)
+    # Track whether the final backup payload should use the consolidated structure.
     local use_consolidated_format=false
-    if [[ "$EXPORT_ORGANIZATIONS" == "true" && -n "$BW_ORGANIZATION_IDS" ]]; then
-        use_consolidated_format=true
+    # Track the final list of organization IDs to export after normalization/discovery.
+    local effective_org_ids="${BW_ORGANIZATION_IDS}"
+
+    # Resolve organization IDs early so later export logic can stay simple and deterministic.
+    if [[ "$EXPORT_ORGANIZATIONS" == "true" ]]; then
+        # Normalize user-provided IDs by removing whitespace around comma-separated values.
+        effective_org_ids=$(echo "$effective_org_ids" | tr -d '[:space:]')
+
+        # Prefer explicit IDs when the user has provided them.
+        if [ -n "$effective_org_ids" ]; then
+            # Log the source of organization IDs for observability during troubleshooting.
+            log INFO "Using organization IDs from BW_ORGANIZATION_IDS."
+        else
+            # Announce automatic discovery so users understand why `bw list organizations` is executed.
+            log INFO "BW_ORGANIZATION_IDS is empty. Discovering all accessible organizations automatically..."
+
+            # Store the full JSON response from Bitwarden so we can validate and parse it safely.
+            local organizations_json
+            # Query Bitwarden for all organizations visible to the authenticated account.
+            if ! organizations_json=$(bw list organizations --session "$BW_SESSION" 2>/dev/null); then
+                # Fail fast because organization exports were explicitly requested.
+                log ERROR "Failed to list organizations for automatic export discovery."
+                exit "$EXIT_EXPORT_FAILED"
+            fi
+
+            # Validate the response is well-formed JSON before trying to parse organization IDs.
+            if ! echo "$organizations_json" | jq empty >/dev/null 2>&1; then
+                # Stop here to avoid silently skipping org backups due to malformed output.
+                log ERROR "Bitwarden returned invalid JSON while listing organizations."
+                exit "$EXIT_EXPORT_FAILED"
+            fi
+
+            # Extract organization IDs and convert them into a comma-separated list for reuse by existing logic.
+            if ! effective_org_ids=$(echo "$organizations_json" | jq -r '[.[] | .id // empty | select(length > 0)] | join(",")'); then
+                # Stop if parsing fails so we do not run with ambiguous or partial organization state.
+                log ERROR "Failed to parse organization IDs from Bitwarden response."
+                exit "$EXIT_EXPORT_FAILED"
+            fi
+
+            # Report discovery results so users can confirm automatic org detection behavior.
+            if [ -n "$effective_org_ids" ]; then
+                # Split the normalized list only to calculate and log a clear organization count.
+                local -a discovered_org_ids=()
+                IFS=',' read -ra discovered_org_ids <<< "$effective_org_ids"
+                # Log exactly how many organizations will be exported.
+                log SUCCESS "Auto-discovered ${#discovered_org_ids[@]} organization(s) for export."
+            else
+                # Warn when no organizations are available for the current account/session.
+                log WARN "No accessible organizations found for this account. Skipping organization export."
+            fi
+        fi
+
+        # Enable consolidated backup format whenever at least one organization ID is available.
+        if [ -n "$effective_org_ids" ]; then
+            # Consolidated format is required to preserve personal + organization separation in one file.
+            use_consolidated_format=true
+        fi
     fi
 
     local final_data=""
@@ -987,13 +1042,16 @@ export_data() {
     # Export organization vaults if requested
     local org_exports=""
     if [[ "$EXPORT_ORGANIZATIONS" == "true" ]]; then
-        if [ -z "$BW_ORGANIZATION_IDS" ]; then
-            log WARN "EXPORT_ORGANIZATIONS is enabled but BW_ORGANIZATION_IDS is empty."
-            log INFO "To get organization IDs, run: bw list organizations --session \$BW_SESSION"
-            # If personal export is also disabled, this is an error
+        # If no IDs are resolved, we cannot run organization exports.
+        if [ -z "$effective_org_ids" ]; then
+            # Surface why org exports are skipped to avoid silent surprises.
+            log WARN "EXPORT_ORGANIZATIONS is enabled but no organization IDs were resolved."
+            # If personal export is disabled, this configuration would produce an empty backup.
             if [[ "$EXPORT_PERSONAL" != "true" ]]; then
-                log ERROR "Cannot export organizations without BW_ORGANIZATION_IDS and personal export is disabled."
-                log ERROR "Either set BW_ORGANIZATION_IDS or enable EXPORT_PERSONAL=true"
+                # Fail clearly because no export source remains.
+                log ERROR "Cannot export organizations because no organization IDs were resolved and personal export is disabled."
+                # Suggest the two valid recovery paths for this configuration.
+                log ERROR "Either set BW_ORGANIZATION_IDS, ensure account access to at least one organization, or enable EXPORT_PERSONAL=true"
                 exit "$EXIT_EXPORT_FAILED"
             fi
         else
@@ -1002,10 +1060,11 @@ export_data() {
             # Initialize organizations object
             org_exports='{}'
 
-            # Split organization IDs by comma
-            IFS=',' read -ra ORG_IDS <<< "$BW_ORGANIZATION_IDS"
+            # Split organization IDs by comma so each organization can be exported independently.
+            local -a org_ids=()
+            IFS=',' read -ra org_ids <<< "$effective_org_ids"
 
-            for org_id in "${ORG_IDS[@]}"; do
+            for org_id in "${org_ids[@]}"; do
                 # Trim whitespace
                 org_id=$(echo "$org_id" | tr -d '[:space:]')
 
