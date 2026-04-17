@@ -1,7 +1,10 @@
 name: Push Backup Image to DockerHub
 on:
   workflow_dispatch:
-  push:
+  workflow_run:
+    workflows: ["Lint"]
+    types:
+      - completed
     branches:
       - main
   workflow_call:
@@ -34,6 +37,7 @@ on:
 
 jobs:
   dockerhub-push:
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
     uses: nikhilbadyal/ghactions/.github/workflows/dockerhub-push.yml@main
     with:
       IMAGE_TAG: ${{ github.repository }}${{ inputs.image-suffix || '' }}:latest${{ inputs.additional-tags && format(',{0}', inputs.additional-tags) || '' }}
