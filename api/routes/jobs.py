@@ -8,7 +8,7 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 
-from api.auth import get_token, get_token_from_query
+from api.auth import get_token
 from api.cache import clear_rclone_cache
 from api.jobs import BackupJobManager, JobStatus, JobUpdate, cancel_running_job, start_backup_job
 from api.models import (
@@ -17,6 +17,7 @@ from api.models import (
     BackupJobLogsResponse,
     BackupJobResponse,
     BackupJobStatusResponse,
+    BackupJobStreamTokenResponse,
     CancelJobResponse,
 )
 
@@ -139,22 +140,60 @@ def get_job_logs(
     )
 
 
+@router.post(
+    "/{job_id}/stream-token",
+    summary="Issue a short-lived SSE stream token",
+    description=(
+        "Issue a short-lived token for SSE stream bootstrap so the primary API token "
+        "does not need to be sent in query parameters."
+    ),
+)
+def issue_stream_token(
+    job_id: str,
+    _: Annotated[bool, Depends(get_token)],
+) -> BackupJobStreamTokenResponse:
+    """Issue a short-lived token used only to open the SSE stream for a job."""
+    # Create a manager instance to access job state and token issuance helpers.
+    manager = BackupJobManager()
+    # Ensure the target job exists before minting a stream token.
+    job = manager.get_job(job_id)
+    if not job:
+        # Return 404 so clients can handle stale or invalid job IDs.
+        raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
+    # Issue a short-lived token bound to this job only.
+    stream_token, ttl_seconds = manager.issue_stream_token(job_id)
+    # Return token and TTL metadata so the UI can open the stream immediately.
+    return BackupJobStreamTokenResponse(
+        job_id=job_id,
+        stream_token=stream_token,
+        expires_in_seconds=ttl_seconds,
+    )
+
+
 @router.get(
     "/{job_id}/stream",
     summary="Stream job updates (SSE)",
-    description="Server-Sent Events stream for real-time job updates and logs. "
-    "Pass token as query parameter since EventSource doesn't support custom headers.",
+    description=(
+        "Server-Sent Events stream for real-time job updates and logs. "
+        "Use a short-lived stream token from /stream-token."
+    ),
 )
 async def stream_job_updates(
     job_id: str,
-    _: Annotated[bool, Depends(get_token_from_query)],
+    stream_token: Annotated[str, Query(min_length=20, description="Short-lived stream token")],
 ) -> StreamingResponse:
     """Stream job updates and logs via Server-Sent Events (SSE).
 
     Connect to this endpoint to receive real-time updates about job progress and logs.
     The stream will close automatically when the job completes.
     """
+    # Create a manager instance for both auth validation and stream state reads.
     manager = BackupJobManager()
+    # Validate and consume the short-lived stream token before opening the stream.
+    if not manager.consume_stream_token(job_id, stream_token):
+        # Reject invalid, expired, or replayed stream tokens with 401.
+        raise HTTPException(status_code=401, detail="Invalid or expired stream token")
+    # Load the target job after auth validation.
     job = manager.get_job(job_id)
 
     if not job:

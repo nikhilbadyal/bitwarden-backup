@@ -3,8 +3,6 @@ services:
     image: redis:7-alpine
     container_name: bitwarden-backup-redis
     restart: unless-stopped
-    ports:
-      - "6379:6379"
     volumes:
       - redis-data:/data
     command: redis-server --appendonly yes
@@ -53,7 +51,7 @@ services:
     command: >
       sh -c "
         chmod +x /app/*.sh /app/scripts/*.sh &&
-        uvicorn api.main:app --host 0.0.0.0 --port 5050 --reload
+        uvicorn api.main:app --host 0.0.0.0 --port 5050
       "
 
   ui:
@@ -64,7 +62,7 @@ services:
     volumes:
       - ui-build:/app/ui/build # Mount named volume for build output
     environment:
-      - REACT_APP_API_BASE_URL=/api # Nginx will proxy /api to the backend
+      - VITE_API_BASE_URL=/api # Nginx will proxy /api to the backend
     networks:
       - bitwarden-backup-network
 

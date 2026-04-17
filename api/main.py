@@ -12,11 +12,26 @@ from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import ValidationError
 
-from .config import load_env, setup_rclone_config
+from .config import (
+    get_api_allowed_hosts,
+    get_api_cors_allow_credentials,
+    get_api_cors_allow_headers,
+    get_api_cors_allow_methods,
+    get_api_cors_expose_headers,
+    get_api_cors_origins,
+    load_env,
+    setup_rclone_config,
+    validate_api_security_configuration,
+)
 from .routes import backups, jobs, remotes, system
 
 # Global variables for tracking application state
 start_time = time.time()
+
+# Load environment values before middleware initialization so host/CORS settings are available.
+load_env()
+# Validate security-sensitive CORS settings before middleware is attached.
+validate_api_security_configuration()
 
 
 @asynccontextmanager
@@ -27,6 +42,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # Setup environment and rclone configuration
     try:
         load_env()
+        # Validate security-sensitive middleware configuration before app starts serving traffic.
+        validate_api_security_configuration()
         setup_rclone_config()
     except Exception:
         sys.exit(1)
@@ -110,19 +127,39 @@ app = FastAPI(
 )
 
 # Add security middleware
+# Read trusted host configuration from validated environment settings.
+trusted_hosts = get_api_allowed_hosts()
 app.add_middleware(
     TrustedHostMiddleware,
-    allowed_hosts=["*"],  # Configure appropriately for production
+    # Enforce explicit host allow-list to reduce host-header attack surface.
+    allowed_hosts=trusted_hosts,
 )
 
 # Configure CORS with more specific settings
+# Read CORS origin configuration from validated environment settings.
+cors_origins = get_api_cors_origins()
+# Read CORS credential setting from validated environment settings.
+cors_allow_credentials = get_api_cors_allow_credentials()
+# Read explicit CORS methods from validated environment settings.
+cors_allow_methods = get_api_cors_allow_methods()
+# Read explicit CORS request headers from validated environment settings.
+cors_allow_headers = get_api_cors_allow_headers()
+# Read CORS exposed headers from validated environment settings.
+cors_expose_headers = get_api_cors_expose_headers()
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Configure appropriately for production
-    allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allow_headers=["*"],
-    expose_headers=["X-Request-ID", "X-Response-Time"],
+    # Restrict allowed origins to explicit configured values.
+    allow_origins=cors_origins,
+    # Control whether credentialed cross-origin requests are permitted.
+    allow_credentials=cors_allow_credentials,
+    # Restrict methods to explicit configured values.
+    allow_methods=cors_allow_methods,
+    # Restrict request headers to explicit configured values.
+    allow_headers=cors_allow_headers,
+    # Expose only explicit response headers used by clients.
+    expose_headers=cors_expose_headers,
+    # Cache successful preflight responses for one hour to reduce browser overhead.
+    max_age=3600,
 )
 
 

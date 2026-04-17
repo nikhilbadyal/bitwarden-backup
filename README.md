@@ -151,7 +151,7 @@ docker-compose -f docker-compose.full.yml up -d
 **Option 2: Manual Development Setup**
 ```bash
 # 1. Start the API backend
-cls && uvicorn api.main:app --reload --host 0.0.0.0 --port 5050
+uvicorn api.main:app --host 0.0.0.0 --port 5050
 
 # 2. In another terminal, start the UI
 cd ui
@@ -324,11 +324,19 @@ cp env.example .env
 
 ### API Configuration (Required for API service)
 
-| Variable      | Description                            | Example                    |
-|:--------------|:---------------------------------------|:---------------------------|
-| `API_TOKEN`   | Authentication token for API access    | `your_secure_api_token`    |
-| `REDIS_URL`   | Redis connection URL for caching       | `redis://localhost:6379/0` |
-| `BACKUP_PATH` | Remote path/bucket for storing backups | `bitwarden-backup`         |
+| Variable                         | Description                                                         | Example                                         |
+|:---------------------------------|:--------------------------------------------------------------------|:------------------------------------------------|
+| `API_TOKEN`                      | Authentication token for API access                                 | `your_secure_api_token`                         |
+| `REDIS_URL`                      | Redis connection URL for caching                                    | `redis://localhost:6379/0`                      |
+| `BACKUP_PATH`                    | Remote path/bucket for storing backups                              | `bitwarden-backup`                              |
+| `API_ALLOW_BACKUP_DECRYPTION`    | Enables sensitive download/restore operations                       | `false`                                         |
+| `API_ALLOWED_HOSTS`              | Trusted host allow-list (comma-separated)                           | `localhost,127.0.0.1,api.example.com`           |
+| `API_CORS_ORIGINS`               | Explicit CORS origins (comma-separated)                             | `http://localhost,http://localhost:3000`        |
+| `API_CORS_ALLOW_CREDENTIALS`     | CORS credential support (`true/false`)                              | `true`                                          |
+| `API_CORS_ALLOW_METHODS`         | Explicit CORS methods (comma-separated)                             | `GET,POST,PUT,DELETE,OPTIONS`                   |
+| `API_CORS_ALLOW_HEADERS`         | Explicit CORS request headers (comma-separated)                     | `Authorization,Content-Type,Accept`             |
+| `API_CORS_EXPOSE_HEADERS`        | CORS response headers exposed to browser (comma-separated)          | `X-Request-ID,X-Response-Time,X-API-Version`    |
+| `API_STREAM_TOKEN_TTL_SECONDS`   | Short-lived SSE stream token TTL in seconds                         | `120`                                           |
 
 ### Self-Hosted Bitwarden Support
 
@@ -373,10 +381,12 @@ BW_IDENTITY="https://identity.example.com"
 | `EXPORT_PERSONAL`      | Export personal vault                                                     | `true`  | `true` or `false`           |
 | `EXPORT_ORGANIZATIONS` | Export organization vaults                                                | `false` | `true` or `false`           |
 | `BW_ORGANIZATION_IDS`  | Optional org IDs to export; empty means auto-discover all accessible orgs | None    | `12345678-...,87654321-...` |
+| `EXPORT_ORGANIZATIONS_FAIL_FAST` | Fail immediately when any org export fails (`true`) or continue with partial success (`false`) | `false` | `true` or `false` |
 
 **Format Details:**
 - When `EXPORT_ORGANIZATIONS=false` (default): Uses standard Bitwarden export format
 - When `EXPORT_ORGANIZATIONS=true`: Uses consolidated format with `personal` and `organizations` sections
+- When `EXPORT_ORGANIZATIONS_FAIL_FAST=false` (default): Organization export failures are logged and remaining orgs continue
 - Restore script automatically detects format and provides extraction options
 
 ### Optional Variables (Advanced)

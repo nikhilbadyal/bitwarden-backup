@@ -1,28 +1,24 @@
 FROM debian:bookworm-slim
 
 # Install all dependencies in a single RUN layer
-RUN apt-get update && apt-get upgrade -y && \
+RUN apt-get update && \
     apt-get install -y --no-install-recommends \
         build-essential \
         ca-certificates \
         curl \
-        gnupg \
         jq \
+        nodejs \
+        npm \
         python3 \
         python3-pip \
+        rclone \
         unzip \
         wget && \
-    # Install Node.js LTS (auto-detects arch, supports ARM/x86)
-    curl -fsSL https://deb.nodesource.com/setup_lts.x | bash - && \
-    apt-get install -y nodejs && \
     # Install Apprise using pip (with --break-system-packages for Debian 12)
     pip3 install apprise --break-system-packages && \
-    # Install Bitwarden CLI via npm (works on all architectures)
+    # Install Bitwarden CLI via npm with explicit version pinning for reproducibility
     npm cache clean --force && \
-    npm install -g semver && \
-    npm install -g @bitwarden/cli && \
-    # Install rclone (auto-detect architecture)
-    curl https://rclone.org/install.sh | bash && \
+    npm install -g @bitwarden/cli@2026.3.0 && \
     # Clean up apt cache and temporary files
     apt-get clean && \
     rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* /root/.npm && \

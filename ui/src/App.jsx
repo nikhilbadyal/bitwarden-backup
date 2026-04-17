@@ -43,32 +43,34 @@ class ErrorBoundary extends React.Component {
 }
 
 function App() {
-  console.log("App component starting to render...");
-
+  // Keep token in sessionStorage so it is not persisted beyond browser session lifetime.
   const [token, setToken] = useState(() => {
     try {
-      return localStorage.getItem("api_token");
+      // Read any existing in-session token for page refresh continuity.
+      return sessionStorage.getItem("api_token");
     } catch (e) {
-      console.error("Error accessing localStorage:", e);
+      // Fall back to unauthenticated state if storage is unavailable.
       return null;
     }
   });
 
   useEffect(() => {
-    console.log("App useEffect running, token:", token);
+    // Synchronize token updates to sessionStorage for same-session continuity.
     try {
       if (token) {
-        localStorage.setItem("api_token", token);
+        // Persist authenticated token only for the current browser session.
+        sessionStorage.setItem("api_token", token);
       } else {
-        localStorage.removeItem("api_token");
+        // Remove token value from storage when user logs out.
+        sessionStorage.removeItem("api_token");
       }
     } catch (e) {
-      console.error("Error setting localStorage:", e);
+      // Ignore storage write failures and keep in-memory token as fallback.
     }
   }, [token]);
 
   const handleLogout = () => {
-    console.log("Logout clicked");
+    // Clear token state to terminate authenticated UI access immediately.
     setToken(null);
   };
 
@@ -80,14 +82,11 @@ function App() {
     { text: "Rclone Config", icon: <Settings />, path: "/rclone-config" },
   ];
 
-  console.log("App about to return JSX...");
-
   return (
     <ErrorBoundary>
       <Router>
         <Routes>
           <Route path="/login" element={<Login setToken={setToken} />} />
-          <Route path="/debug" element={<div style={{ padding: "20px" }}>Debug page - Token: {token || "None"}</div>} />
           <Route
             path="/*"
             element={
@@ -103,8 +102,6 @@ function App() {
 }
 
 function MainLayout({ menuItems, handleLogout, token }) {
-  console.log("MainLayout rendering...");
-
   return (
     <ErrorBoundary>
       <Box sx={{ display: "flex" }}>

@@ -92,9 +92,31 @@ function BackupJobs({ token }) {
     }
   }, [activeJobLogs]);
 
-  // Subscribe to job updates via SSE
+  // Request a short-lived stream token so the main API token is never sent in SSE URL.
+  const requestStreamToken = useCallback(
+    async (jobId) => {
+      // Call token issuance endpoint using Authorization header auth.
+      const response = await fetch(`${API_BASE_URL}/api/v1/jobs/${jobId}/stream-token/`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      // Fail fast on non-success responses so callers can surface user-facing errors.
+      if (!response.ok) {
+        // Parse server-provided error payload when available.
+        const errorData = await response.json().catch(() => ({}));
+        // Raise a descriptive error for upstream handlers.
+        throw new Error(errorData.detail || `Failed to request stream token (HTTP ${response.status})`);
+      }
+      // Parse and return token payload.
+      const data = await response.json();
+      return data.stream_token;
+    },
+    [token],
+  );
+
+  // Subscribe to job updates via SSE.
   const subscribeToJob = useCallback(
-    (jobId) => {
+    async (jobId) => {
       // Close existing connection
       if (eventSourceRef.current) {
         eventSourceRef.current.close();
@@ -104,8 +126,11 @@ function BackupJobs({ token }) {
       setActiveJobLogs([]);
       setActiveJobStatus(null);
 
-      // Create SSE connection
-      const eventSource = new EventSource(`${API_BASE_URL}/api/v1/jobs/${jobId}/stream/?token=${token}`);
+      // Request a short-lived stream token before opening SSE connection.
+      const streamToken = await requestStreamToken(jobId);
+
+      // Create SSE connection using short-lived stream token.
+      const eventSource = new EventSource(`${API_BASE_URL}/api/v1/jobs/${jobId}/stream/?stream_token=${encodeURIComponent(streamToken)}`);
       eventSourceRef.current = eventSource;
 
       eventSource.addEventListener("status", (event) => {
@@ -127,10 +152,47 @@ function BackupJobs({ token }) {
         fetchJobs();
       });
 
-      eventSource.addEventListener("error", () => {
-        console.error("SSE connection error");
+      eventSource.addEventListener("error", async () => {
+        // Close broken stream connection to avoid duplicate reconnect loops.
         eventSource.close();
         eventSourceRef.current = null;
+        // Try to re-establish stream once with a fresh short-lived token.
+        try {
+          // Request a new token to recover from token expiration/replay errors.
+          const refreshedStreamToken = await requestStreamToken(jobId);
+          // Open a fresh EventSource connection with the new token.
+          const retriedEventSource = new EventSource(
+            `${API_BASE_URL}/api/v1/jobs/${jobId}/stream/?stream_token=${encodeURIComponent(refreshedStreamToken)}`,
+          );
+          // Save retry connection reference so lifecycle cleanup remains correct.
+          eventSourceRef.current = retriedEventSource;
+          // Mirror status event handling for retry connection.
+          retriedEventSource.addEventListener("status", (event) => {
+            const data = JSON.parse(event.data);
+            setActiveJobStatus(data);
+          });
+          // Mirror log event handling for retry connection.
+          retriedEventSource.addEventListener("log", (event) => {
+            const data = JSON.parse(event.data);
+            setActiveJobLogs((prev) => [...prev, data]);
+          });
+          // Mirror completion event handling for retry connection.
+          retriedEventSource.addEventListener("done", (event) => {
+            const data = JSON.parse(event.data);
+            setActiveJobStatus((prev) => ({ ...prev, ...data }));
+            retriedEventSource.close();
+            eventSourceRef.current = null;
+            fetchJobs();
+          });
+          // Close retry connection on repeated errors.
+          retriedEventSource.addEventListener("error", () => {
+            retriedEventSource.close();
+            eventSourceRef.current = null;
+          });
+        } catch (_retryError) {
+          // Surface a concise UI error when retry token flow also fails.
+          setError("Live stream disconnected. Refresh and watch job again.");
+        }
       });
 
       return () => {
@@ -138,7 +200,7 @@ function BackupJobs({ token }) {
         eventSourceRef.current = null;
       };
     },
-    [token, fetchJobs],
+    [fetchJobs, requestStreamToken],
   );
 
   // Cleanup on unmount
@@ -171,8 +233,8 @@ function BackupJobs({ token }) {
 
       const data = await response.json();
 
-      // Subscribe to the new job
-      subscribeToJob(data.job_id);
+      // Subscribe to the new job with short-lived stream token auth.
+      await subscribeToJob(data.job_id);
 
       // Refresh job list
       fetchJobs();
@@ -237,7 +299,8 @@ function BackupJobs({ token }) {
 
   // Watch a running job
   const handleWatchJob = (jobId) => {
-    subscribeToJob(jobId);
+    // Fire and forget stream subscription from explicit user interaction.
+    void subscribeToJob(jobId);
     setExpandedJobId(jobId);
   };
 

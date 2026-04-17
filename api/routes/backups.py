@@ -12,6 +12,7 @@ from typing import Annotated, Any, Literal
 import anyio
 from fastapi import APIRouter, Body, Depends, HTTPException
 from fastapi.responses import FileResponse
+from starlette.background import BackgroundTask
 
 from api.auth import get_token, get_token_with_decryption_permission
 from api.cache import clear_rclone_cache, get_redis_client
@@ -45,6 +46,24 @@ def filter_internal_files(files: list[dict[str, Any]]) -> list[dict[str, Any]]:
 def is_internal_metadata_file(filename: str) -> bool:
     """Check if a filename is an internal metadata file that should be protected."""
     return filename in INTERNAL_METADATA_FILES
+
+
+def _safe_remove_file(path: str) -> None:
+    """Best-effort file cleanup helper used by response background tasks."""
+    # Attempt cleanup quietly because response delivery should not fail on cleanup errors.
+    try:
+        # Remove the temporary file path if it still exists.
+        Path(path).unlink(missing_ok=True)
+    except Exception:
+        # Swallow cleanup errors to avoid impacting response completion.
+        return
+
+
+def _safe_remove_directory(path: str) -> None:
+    """Best-effort directory cleanup helper used by response background tasks."""
+    # Attempt recursive cleanup quietly because response delivery should not fail on cleanup errors.
+    shutil.rmtree(path, ignore_errors=True)
+
 
 def pascal_to_snake_dict(item: dict[str, Any]) -> dict[str, Any]:
     """Convert a dictionary with PascalCase keys to snake_case keys."""
@@ -155,7 +174,14 @@ def download_backup(
     result = run_copyto(remote, backup_path, filename, tmp_path)
     if result.returncode != 0:
         raise HTTPException(status_code=404, detail="File not found or download failed.")
-    return FileResponse(tmp_path, filename=filename, media_type="application/octet-stream")
+    # Schedule post-response cleanup so temporary download files are not left on disk.
+    cleanup_task = BackgroundTask(_safe_remove_file, tmp_path)
+    return FileResponse(
+        tmp_path,
+        filename=filename,
+        media_type="application/octet-stream",
+        background=cleanup_task,
+    )
 
 @router.get("/{remote}/{filename:path}")
 def get_backup_metadata(remote: str, filename: str, _: Annotated[bool, Depends(get_token)]) -> BackupMetadataResponse:
@@ -278,10 +304,13 @@ async def restore_backup(
         if not await anyio.Path(output_file).exists():
             _raise_output_missing_error()
 
+        # Schedule post-response cleanup so restored plaintext files are not left on disk.
+        cleanup_task = BackgroundTask(_safe_remove_directory, temp_dir)
         return FileResponse(
             path=str(output_file),
             filename=f"restored_{filename.replace('.enc', '.json')}",
             media_type="application/json",
+            background=cleanup_task,
         )
     except Exception as e:
         # Clean up the temporary directory on error

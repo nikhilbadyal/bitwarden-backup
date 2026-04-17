@@ -135,16 +135,23 @@ If `API_ALLOW_BACKUP_DECRYPTION` is not set to `true`, these endpoints will retu
 **System:**
 
 - `GET /` - API root information
-- `GET /api/v1/health` - Health check (API, Redis, rclone)
-- `GET /api/v1/info` - System information
+- `GET /health` - Health check (API, Redis, rclone)
+- `GET /info` - System information
 
 **Backups:**
 
 - `GET /api/v1/backups` - List backup files
 - `GET /api/v1/backups/{remote}/{filename}` - Get backup metadata
 - `DELETE /api/v1/backups/{remote}/{filename}` - Delete a backup
-- `POST /api/v1/backups/refresh_cache` - Refresh backup cache
-- `GET /api/v1/download/{remote}/{filename}` - Download backup file
+- `POST /api/v1/backups/refresh-cache?remote=<remote>` - Refresh backup cache
+- `GET /api/v1/backups/download/{remote}/{filename}` - Download backup file
+
+**Backup Jobs:**
+
+- `POST /api/v1/jobs/trigger` - Trigger async backup job
+- `GET /api/v1/jobs/{job_id}` - Get async backup job status
+- `POST /api/v1/jobs/{job_id}/stream-token` - Issue short-lived SSE stream token
+- `GET /api/v1/jobs/{job_id}/stream?stream_token=...` - Stream job updates via SSE
 
 **Remotes:**
 
@@ -193,7 +200,8 @@ The API setup includes:
 
 ### Live Reload
 
-The API container is configured with `--reload` for development. Changes to your code will automatically restart the server.
+The Docker API container runs without `--reload` for safer defaults.
+Use direct local `uvicorn --reload` only when you explicitly need hot-reload during development.
 
 ### Debugging
 
@@ -280,7 +288,7 @@ The API includes comprehensive health checks. If they fail:
 2. Check individual service health:
 
    ```bash
-   curl http://localhost:5050/api/v1/health
+   curl http://localhost:5050/health
    ```
 
 3. Review logs for startup errors
@@ -291,7 +299,7 @@ For production deployment:
 
 ### Security
 
-1. **Remove --reload** from Dockerfile.api CMD
+1. **Keep `--reload` disabled** in containerized runtime
 2. **Use strong API tokens** (32+ random characters)
 3. **Configure CORS** properly instead of allowing all origins
 4. **Set up TLS/SSL** termination (nginx, Traefik, etc.)
@@ -325,7 +333,7 @@ For production deployment:
 If you were previously running:
 
 ```bash
-uvicorn api.main:app --reload --host 0.0.0.0 --port 5050
+uvicorn api.main:app --host 0.0.0.0 --port 5050
 ```
 
 You can now simply run:
@@ -356,21 +364,21 @@ curl -H "Authorization: Bearer your_api_token" \
 
 ```bash
 curl -H "Authorization: Bearer your_api_token" \
-  "http://localhost:5050/api/v1/download/s3-backup/bw_backup_20241218123456.json.gz.enc" \
+  "http://localhost:5050/api/v1/backups/download/s3-backup/bw_backup_20241218123456.json.gz.enc" \
   -o backup.enc
 ```
 
 ### Check System Health
 
 ```bash
-curl "http://localhost:5050/api/v1/health"
+curl "http://localhost:5050/health"
 ```
 
 ### Trigger New Backup
 
 ```bash
 curl -X POST -H "Authorization: Bearer your_api_token" \
-  "http://localhost:5050/api/v1/trigger-backup"
+  "http://localhost:5050/api/v1/jobs/trigger"
 ```
 
 For more examples, visit the interactive API documentation at <http://localhost:5050/api/v1/docs> when the API is running.

@@ -4,10 +4,11 @@ from datetime import UTC, datetime
 from typing import Annotated, Any
 
 import fastapi
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import JSONResponse
 
-from api.cache import get_redis_client
+from api.auth import get_token
+from api.cache import clear_application_cache, get_redis_client
 from api.config import get_backup_path
 from api.models import APIResponse, HealthResponse
 from api.rclone import run_version
@@ -285,15 +286,15 @@ async def get_system_info() -> dict[str, Any]:
     summary="Clear System Cache",
     description="Clear all cached data (use with caution in production)",
 )
-async def clear_cache() -> APIResponse:
+async def clear_cache(_: Annotated[bool, Depends(get_token)]) -> APIResponse:
     """Clear all cached data (use with caution in production)."""
     try:
-        redis_client = get_redis_client()
-        redis_client.flushall()
+        # Clear only this application's managed cache keys to avoid deleting foreign Redis data.
+        deleted_key_count = clear_application_cache()
 
         return APIResponse(
             status="ok",
-            message="Cache cleared successfully",
+            message=f"Application cache cleared successfully ({deleted_key_count} key(s) removed)",
             timestamp=datetime.now(UTC),
         )
     except Exception as e:

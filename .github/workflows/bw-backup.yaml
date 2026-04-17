@@ -16,18 +16,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4.2.2
+        uses: actions/checkout@v6.0.2
 
       - name: Create .env file from secret
         run: |
           echo "${{ secrets.BITWARDEN_BACKUP_ENV }}" > .env
-          # For debugging (don't show in logs)
-          echo "::add-mask::$(head -n 3 .env)"
-          echo "Generated .env file with $(wc -l .env | awk '{print $1}') variables"
 
       - name: Tmate debugging session
         if: github.event_name == 'workflow_dispatch' && github.event.inputs.debug_session == true
-        uses: mxschmitt/action-tmate@v3
+        uses: mxschmitt/action-tmate@v3.23
 
       - name: Set up Docker Compose
         if: github.event.inputs.debug_session != true
@@ -53,7 +50,7 @@ jobs:
 
       - name: Upload logs artifact
         if: always() && github.event.inputs.debug_session != true
-        uses: actions/upload-artifact@v4.6.2
+        uses: actions/upload-artifact@v7.0.1
         with:
           name: backup-logs
           path: logs/

@@ -3,6 +3,7 @@
 import asyncio
 import json
 import os
+import secrets
 import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -10,6 +11,7 @@ from enum import StrEnum
 from typing import Any
 
 from api.cache import get_redis_client
+from api.config import get_stream_token_ttl_seconds
 
 
 class JobStatus(StrEnum):
@@ -38,6 +40,7 @@ class BackupJobManager:
 
     JOB_PREFIX = "backup_job:"
     JOB_LOGS_PREFIX = "backup_job_logs:"
+    STREAM_TOKEN_PREFIX = "backup_job_stream_token:"
     JOB_LIST_KEY = "backup_jobs_list"
     JOB_TTL = 86400 * 7  # 7 days
 
@@ -178,6 +181,46 @@ class BackupJobManager:
 
         self.redis.zremrangebyscore(self.JOB_LIST_KEY, 0, cutoff)
         return len(old_jobs)
+
+    def issue_stream_token(self, job_id: str) -> tuple[str, int]:
+        """Issue a short-lived SSE token tied to a specific job ID."""
+        # Generate a high-entropy token so brute-force guessing is impractical.
+        stream_token = secrets.token_urlsafe(32)
+        # Read the configured TTL once so issue and response metadata stay consistent.
+        ttl_seconds = get_stream_token_ttl_seconds()
+        # Build the Redis key namespace dedicated to stream auth tokens.
+        token_key = f"{self.STREAM_TOKEN_PREFIX}{stream_token}"
+        # Store the job binding payload as JSON to keep room for future metadata fields.
+        token_payload = json.dumps({"job_id": job_id})
+        # Persist the token with expiration so leaked URLs naturally expire quickly.
+        self.redis.setex(token_key, ttl_seconds, token_payload)
+        # Return the token and TTL so callers can relay expiry metadata to clients.
+        return stream_token, ttl_seconds
+
+    def consume_stream_token(self, job_id: str, stream_token: str) -> bool:
+        """Validate and consume a short-lived SSE token for one-time stream access."""
+        # Build the exact Redis key for the provided stream token.
+        token_key = f"{self.STREAM_TOKEN_PREFIX}{stream_token}"
+        # Open a Redis pipeline so token read+delete happens atomically.
+        pipeline = self.redis.pipeline()
+        # Read the token payload inside the transaction.
+        pipeline.get(token_key)
+        # Delete the token inside the same transaction to enforce one-time usage.
+        pipeline.delete(token_key)
+        # Execute the transaction and unpack read/delete results.
+        stored_payload, _deleted_count = pipeline.execute()
+        # Reject missing or expired tokens immediately.
+        if not stored_payload:
+            # Return False because token did not exist at validation time.
+            return False
+        try:
+            # Parse the stored payload to validate token scope.
+            payload = json.loads(stored_payload)
+        except json.JSONDecodeError:
+            # Reject malformed payloads to avoid trusting corrupted state.
+            return False
+        # Accept only tokens explicitly issued for the requested job.
+        return payload.get("job_id") == job_id
 
 
 # Progress mapping for backup script output

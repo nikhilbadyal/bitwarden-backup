@@ -209,6 +209,17 @@ class BackupJobResponse(BaseAPIModel):
     created_at: datetime = Field(description="Job creation timestamp")
 
 
+class BackupJobStreamTokenResponse(BaseAPIModel):
+    """Response model for issuing short-lived SSE stream access tokens."""
+
+    # Carry the target job ID so clients can correlate token responses safely.
+    job_id: str = Field(description="Job identifier bound to this stream token")
+    # Return the short-lived stream token used only for SSE connection bootstrap.
+    stream_token: str = Field(description="Short-lived token for SSE stream connection")
+    # Return TTL metadata so clients can reconnect by refreshing token before expiry.
+    expires_in_seconds: PositiveInt = Field(description="Seconds before stream token expires")
+
+
 class BackupJobStatusResponse(BaseAPIModel):
     """Detailed backup job status response."""
 

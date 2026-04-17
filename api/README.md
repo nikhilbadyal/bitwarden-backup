@@ -26,9 +26,16 @@ All endpoints (except `/health` and `/info`) require an `Authorization: Bearer <
 - `GET /backups/{remote}/{filename}` — Get metadata for a backup file
 - `DELETE /backups/{remote}/{filename}` — Delete a backup file
 - `POST /backups/{remote}/bulk-delete` — Bulk delete backup files (JSON: `{ "files": ["file1", "file2"] }`)
-- `POST /backups/refresh_cache` — Refresh backup file cache for a remote
-- `GET /download/{remote}/{filename}` — Download a backup file
-- `POST /trigger-backup` — Trigger a new backup run
+- `POST /backups/refresh-cache?remote=REMOTE` — Refresh backup file cache for a remote
+- `GET /backups/download/{remote}/{filename}` — Download a backup file
+- `POST /backups/trigger-backup` — Trigger a new backup run (deprecated)
+
+### Backup Jobs
+
+- `POST /jobs/trigger` — Trigger async backup job
+- `GET /jobs/{job_id}` — Fetch async backup job status
+- `POST /jobs/{job_id}/stream-token` — Issue short-lived SSE stream token
+- `GET /jobs/{job_id}/stream?stream_token=...` — Stream job updates via SSE
 
 ### Remotes
 
@@ -69,7 +76,7 @@ pip install -r api/requirements.txt
 ### Start the API
 
 ```sh
-uvicorn api.main:app --reload
+uvicorn api.main:app
 ```
 
 ### API Docs
