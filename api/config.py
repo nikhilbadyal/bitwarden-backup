@@ -35,7 +35,9 @@ def _parse_csv_env(name: str, default: str) -> list[str]:
     return [value for value in parsed_values if value]
 
 
-def _parse_bool_env(name: str, default: bool) -> bool:
+# Changed signature to use keyword-only argument `*` before
+# `default: bool` to fix the Ruff FBT001 warning.
+def _parse_bool_env(name: str, *, default: bool) -> bool:
     """Parse a boolean environment variable using common truthy strings."""
     # Build a default string representation so callers can provide native bool defaults.
     default_value = "true" if default else "false"
@@ -101,7 +103,9 @@ def get_api_cors_origins() -> list[str]:
 def get_api_cors_allow_credentials() -> bool:
     """Return whether CORS credentialed requests are enabled."""
     # Keep credential support enabled by default for token-bearing browser clients.
-    return _parse_bool_env("API_CORS_ALLOW_CREDENTIALS", True)
+    # Used keyword argument syntax `default=True` to fix the
+    # Ruff FBT003 warning (Boolean positional value in function call).
+    return _parse_bool_env("API_CORS_ALLOW_CREDENTIALS", default=True)
 
 
 def get_api_cors_allow_methods() -> list[str]:
@@ -147,6 +151,8 @@ def validate_api_security_configuration() -> None:
 
 def get_stream_token_ttl_seconds() -> int:
     """Return the short-lived SSE stream token TTL in seconds."""
+    # Defined `min_ttl` as a named variable instead of a magic number to fix the Ruff PLR2004 warning.
+    min_ttl = 30
     # Read configured value with a conservative default.
     raw_ttl = os.environ.get("API_STREAM_TOKEN_TTL_SECONDS", "120")
     try:
@@ -157,9 +163,9 @@ def get_stream_token_ttl_seconds() -> int:
         msg = "Environment variable API_STREAM_TOKEN_TTL_SECONDS must be an integer"
         raise RuntimeError(msg) from exc
     # Enforce a minimum positive TTL to avoid immediately-expired tokens.
-    if ttl_seconds < 30:
+    if ttl_seconds < min_ttl:
         # Raise a clear startup error for misconfigured values that would break streaming UX.
-        msg = "Environment variable API_STREAM_TOKEN_TTL_SECONDS must be >= 30"
+        msg = f"Environment variable API_STREAM_TOKEN_TTL_SECONDS must be >= {min_ttl}"
         raise RuntimeError(msg)
     # Return the validated TTL for downstream usage.
     return ttl_seconds

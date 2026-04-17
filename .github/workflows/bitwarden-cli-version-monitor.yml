@@ -24,7 +24,7 @@ jobs:
       current-version: ${{ steps.version-check.outputs.current-version }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6.0.2
 
       - name: Get latest Bitwarden CLI version from NPM
         id: get-latest-version

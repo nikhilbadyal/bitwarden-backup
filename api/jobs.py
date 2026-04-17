@@ -40,7 +40,9 @@ class BackupJobManager:
 
     JOB_PREFIX = "backup_job:"
     JOB_LOGS_PREFIX = "backup_job_logs:"
-    STREAM_TOKEN_PREFIX = "backup_job_stream_token:"
+    # Added noqa: S105 to ignore the false positive hardcoded password warning from Ruff.
+    # This string is a Redis key prefix, not a secret token itself.
+    STREAM_TOKEN_PREFIX = "backup_job_stream_token:"  # noqa: S105
     JOB_LIST_KEY = "backup_jobs_list"
     JOB_TTL = 86400 * 7  # 7 days
 
@@ -215,12 +217,16 @@ class BackupJobManager:
             return False
         try:
             # Parse the stored payload to validate token scope.
-            payload = json.loads(stored_payload)
+            # Added explicit type annotation `dict[str, Any]` to resolve
+            # MyPy typing ambiguity for the parsed JSON dictionary.
+            payload: dict[str, Any] = json.loads(stored_payload)
         except json.JSONDecodeError:
             # Reject malformed payloads to avoid trusting corrupted state.
             return False
         # Accept only tokens explicitly issued for the requested job.
-        return payload.get("job_id") == job_id
+        # Wrapped the equality comparison in bool() to satisfy MyPy's
+        # 'no-any-return' error, ensuring the return type matches the 'bool' signature.
+        return bool(payload.get("job_id") == job_id)
 
 
 # Progress mapping for backup script output
