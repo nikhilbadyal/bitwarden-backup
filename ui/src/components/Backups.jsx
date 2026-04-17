@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   Table,
@@ -138,7 +138,7 @@ function Backups({ token }) {
   const formatModifiedDate = (dateString) => {
     try {
       return `${formatDistanceToNow(parseISO(dateString))} ago`;
-    } catch (error) {
+    } catch {
       return "Invalid date";
     }
   };
@@ -146,7 +146,7 @@ function Backups({ token }) {
   const formatFullDate = (dateString) => {
     try {
       return format(parseISO(dateString), "dd MMM yyyy hh:mm a");
-    } catch (error) {
+    } catch {
       return "Invalid date";
     }
   };

@@ -189,7 +189,7 @@ function BackupJobs({ token }) {
             retriedEventSource.close();
             eventSourceRef.current = null;
           });
-        } catch (_retryError) {
+        } catch {
           // Surface a concise UI error when retry token flow also fails.
           setError("Live stream disconnected. Refresh and watch job again.");
         }

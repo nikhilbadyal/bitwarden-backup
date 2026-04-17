@@ -48,7 +48,7 @@ function App() {
     try {
       // Read any existing in-session token for page refresh continuity.
       return sessionStorage.getItem("api_token");
-    } catch (e) {
+    } catch {
       // Fall back to unauthenticated state if storage is unavailable.
       return null;
     }
@@ -64,7 +64,7 @@ function App() {
         // Remove token value from storage when user logs out.
         sessionStorage.removeItem("api_token");
       }
-    } catch (e) {
+    } catch {
       // Ignore storage write failures and keep in-memory token as fallback.
     }
   }, [token]);

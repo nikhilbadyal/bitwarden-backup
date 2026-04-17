@@ -1,4 +1,3 @@
-import React from "react";
 import { Dialog, DialogTitle, DialogContent, DialogActions, Button, Typography, Box, IconButton, Tooltip } from "@mui/material";
 import DeleteIcon from "@mui/icons-material/Delete";
 import RestoreIcon from "@mui/icons-material/Restore";
@@ -12,7 +11,7 @@ function BackupDetailsModal({ open, handleClose, backup, formatBytes, handleDele
   const formatFullDate = (dateString) => {
     try {
       return format(new Date(dateString), "dd MMM yyyy hh:mm a");
-    } catch (error) {
+    } catch {
       return "Invalid date";
     }
   };
