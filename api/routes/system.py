@@ -286,6 +286,10 @@ async def get_system_info() -> dict[str, Any]:
     summary="Clear System Cache",
     description="Clear all cached data (use with caution in production)",
 )
+@router.post(
+    "/maintenance/cache/clear/",
+    include_in_schema=False,
+)
 async def clear_cache(_: Annotated[bool, Depends(get_token)]) -> APIResponse:
     """Clear all cached data (use with caution in production)."""
     try:

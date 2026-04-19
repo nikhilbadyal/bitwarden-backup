@@ -74,7 +74,8 @@ def pascal_to_snake_dict(item: dict[str, Any]) -> dict[str, Any]:
     return {to_snake(k): item[k] for k in allowed_keys if k in item}
 
 
-@router.get("/")
+@router.get("")
+@router.get("/", include_in_schema=False)
 def list_backups( #noqa: C901,PLR0912,PLR0913
     remote: str,
     _: Annotated[bool, Depends(get_token)],
@@ -157,6 +158,7 @@ def list_backups( #noqa: C901,PLR0912,PLR0913
     )
 
 @router.get("/download/{remote}/{filename:path}")
+@router.get("/download/{remote}/{filename:path}/", include_in_schema=False)
 def download_backup(
     remote: str, filename: str, _: Annotated[bool, Depends(get_token_with_decryption_permission)],
 ) -> FileResponse:
@@ -184,6 +186,7 @@ def download_backup(
     )
 
 @router.get("/{remote}/{filename:path}")
+@router.get("/{remote}/{filename:path}/", include_in_schema=False)
 def get_backup_metadata(remote: str, filename: str, _: Annotated[bool, Depends(get_token)]) -> BackupMetadataResponse:
     """Get metadata for a specific backup file."""
     # Reject requests for internal metadata files
@@ -218,6 +221,7 @@ def get_backup_metadata(remote: str, filename: str, _: Annotated[bool, Depends(g
     raise HTTPException(status_code=404, detail="Backup not found.")
 
 @router.delete("/{remote}/{filename:path}")
+@router.delete("/{remote}/{filename:path}/", include_in_schema=False)
 def delete_backup(remote: str, filename: str, _: Annotated[bool, Depends(get_token)]) -> dict[str, str]:
     """Delete a specific backup file from a remote."""
     # Prevent deletion of internal metadata files
@@ -238,6 +242,7 @@ def delete_backup(remote: str, filename: str, _: Annotated[bool, Depends(get_tok
                         detail=f"Failed to delete backup: {result.stderr or 'Delete failed'}")
 
 @router.post("/restore/{remote}/{filename:path}")
+@router.post("/restore/{remote}/{filename:path}/", include_in_schema=False)
 async def restore_backup(
     remote: str,
     filename: str,
@@ -325,6 +330,7 @@ async def restore_backup(
         ) from e
 
 @router.post("/refresh-cache")
+@router.post("/refresh-cache/", include_in_schema=False)
 def refresh_cache(remote: str, _: Annotated[bool, Depends(get_token)]) -> CacheRefreshResponse:
     """Refresh the cache for the rclone lsjson command."""
     backup_path = get_backup_path()
@@ -368,6 +374,7 @@ def trigger_backup(_: Annotated[bool, Depends(get_token)]) -> TriggerBackupRespo
     )
 
 @router.post("/{remote}/bulk-delete")
+@router.post("/{remote}/bulk-delete/", include_in_schema=False)
 def bulk_delete_backups(
     remote: str,
     req: BulkDeleteRequest,
@@ -415,6 +422,7 @@ def bulk_delete_backups(
     )
 
 @router.post("/rclone/config/base64")
+@router.post("/rclone/config/base64/", include_in_schema=False)
 def rclone_config_to_base64(
     _: Annotated[bool, Depends(get_token)],
     config: Annotated[str, Body(media_type="text/plain", description="Raw rclone config contents")],

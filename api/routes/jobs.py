@@ -45,6 +45,11 @@ def _job_to_status_response(job: dict[str, Any]) -> BackupJobStatusResponse:
     summary="Trigger a new backup job",
     description="Start a new async backup job. Returns immediately with job ID.",
 )
+@router.post(
+    "/trigger/",
+    include_in_schema=False,
+    status_code=201,
+)
 async def trigger_backup_job(
     _: Annotated[bool, Depends(get_token)],
 ) -> BackupJobResponse:
@@ -76,9 +81,13 @@ async def trigger_backup_job(
 
 
 @router.get(
-    "/",
+    "",
     summary="List backup jobs",
     description="List recent backup jobs with their status.",
+)
+@router.get(
+    "/",
+    include_in_schema=False,
 )
 def list_backup_jobs(
     _: Annotated[bool, Depends(get_token)],
@@ -118,6 +127,10 @@ def get_job_status(
     summary="Get job logs",
     description="Get logs for a specific backup job.",
 )
+@router.get(
+    "/{job_id}/logs/",
+    include_in_schema=False,
+)
 def get_job_logs(
     job_id: str,
     _: Annotated[bool, Depends(get_token)],
@@ -148,6 +161,10 @@ def get_job_logs(
         "does not need to be sent in query parameters."
     ),
 )
+@router.post(
+    "/{job_id}/stream-token/",
+    include_in_schema=False,
+)
 def issue_stream_token(
     job_id: str,
     _: Annotated[bool, Depends(get_token)],
@@ -177,6 +194,10 @@ def issue_stream_token(
         "Server-Sent Events stream for real-time job updates and logs. "
         "Use a short-lived stream token from /stream-token."
     ),
+)
+@router.get(
+    "/{job_id}/stream/",
+    include_in_schema=False,
 )
 async def stream_job_updates(
     job_id: str,
@@ -261,6 +282,10 @@ async def stream_job_updates(
     "/{job_id}/cancel",
     summary="Cancel a backup job",
     description="Cancel a pending or running backup job.",
+)
+@router.post(
+    "/{job_id}/cancel/",
+    include_in_schema=False,
 )
 def cancel_job(
     job_id: str,

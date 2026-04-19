@@ -63,7 +63,7 @@ function BackupJobs({ token }) {
   // Fetch jobs list
   const fetchJobs = useCallback(async () => {
     try {
-      const response = await fetch(`${API_BASE_URL}/api/v1/jobs/?limit=20`, {
+      const response = await fetch(`${API_BASE_URL}/api/v1/jobs?limit=20`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -96,7 +96,7 @@ function BackupJobs({ token }) {
   const requestStreamToken = useCallback(
     async (jobId) => {
       // Call token issuance endpoint using Authorization header auth.
-      const response = await fetch(`${API_BASE_URL}/api/v1/jobs/${jobId}/stream-token/`, {
+      const response = await fetch(`${API_BASE_URL}/api/v1/jobs/${jobId}/stream-token`, {
         method: "POST",
         headers: { Authorization: `Bearer ${token}` },
       });
@@ -130,7 +130,7 @@ function BackupJobs({ token }) {
       const streamToken = await requestStreamToken(jobId);
 
       // Create SSE connection using short-lived stream token.
-      const eventSource = new EventSource(`${API_BASE_URL}/api/v1/jobs/${jobId}/stream/?stream_token=${encodeURIComponent(streamToken)}`);
+      const eventSource = new EventSource(`${API_BASE_URL}/api/v1/jobs/${jobId}/stream?stream_token=${encodeURIComponent(streamToken)}`);
       eventSourceRef.current = eventSource;
 
       eventSource.addEventListener("status", (event) => {
@@ -162,7 +162,7 @@ function BackupJobs({ token }) {
           const refreshedStreamToken = await requestStreamToken(jobId);
           // Open a fresh EventSource connection with the new token.
           const retriedEventSource = new EventSource(
-            `${API_BASE_URL}/api/v1/jobs/${jobId}/stream/?stream_token=${encodeURIComponent(refreshedStreamToken)}`,
+            `${API_BASE_URL}/api/v1/jobs/${jobId}/stream?stream_token=${encodeURIComponent(refreshedStreamToken)}`,
           );
           // Save retry connection reference so lifecycle cleanup remains correct.
           eventSourceRef.current = retriedEventSource;
@@ -218,7 +218,7 @@ function BackupJobs({ token }) {
     setError(null);
 
     try {
-      const response = await fetch(`${API_BASE_URL}/api/v1/jobs/trigger/`, {
+      const response = await fetch(`${API_BASE_URL}/api/v1/jobs/trigger`, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${token}`,
@@ -251,7 +251,7 @@ function BackupJobs({ token }) {
     if (!window.confirm("Are you sure you want to cancel this backup job?")) return;
 
     try {
-      const response = await fetch(`${API_BASE_URL}/api/v1/jobs/${jobId}/cancel/`, {
+      const response = await fetch(`${API_BASE_URL}/api/v1/jobs/${jobId}/cancel`, {
         method: "POST",
         headers: { Authorization: `Bearer ${token}` },
       });
@@ -271,7 +271,7 @@ function BackupJobs({ token }) {
   // Fetch logs for a completed job
   const fetchJobLogs = async (jobId) => {
     try {
-      const response = await fetch(`${API_BASE_URL}/api/v1/jobs/${jobId}/logs/?limit=500`, {
+      const response = await fetch(`${API_BASE_URL}/api/v1/jobs/${jobId}/logs?limit=500`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
