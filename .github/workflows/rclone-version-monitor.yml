@@ -30,8 +30,11 @@ jobs:
         id: get-latest-version
         run: |
           set -eo pipefail
-          API_RESPONSE=$(curl -s "https://api.github.com/repos/rclone/rclone/releases/latest")
+          # Keep the release metadata in one response so the version and timestamp cannot drift between API calls.
+          API_RESPONSE=$(curl -fsSL "https://api.github.com/repos/rclone/rclone/releases/latest")
+          # The tag is still the install target, while published_at is the evidence used for the safety delay.
           LATEST_VERSION=$(echo "${API_RESPONSE}" | jq -r '.tag_name')
+          RELEASE_PUBLISHED_AT=$(echo "${API_RESPONSE}" | jq -r '.published_at')
 
           if [ -z "${LATEST_VERSION}" ] || [ "${LATEST_VERSION}" = "null" ]; then
             echo "::error::Failed to get latest rclone version. API response might be empty or malformed."
@@ -39,8 +42,19 @@ jobs:
             exit 1
           fi
 
-          echo "latest-version=${LATEST_VERSION}" >> $GITHUB_OUTPUT
+          if [ -z "${RELEASE_PUBLISHED_AT}" ] || [ "${RELEASE_PUBLISHED_AT}" = "null" ]; then
+            echo "::error::Failed to get rclone release publish timestamp. API response might be missing published_at."
+            echo "Raw API Response: ${API_RESPONSE}" >&2
+            exit 1
+          fi
+
+          # Write related outputs together so the step exposes a consistent release snapshot to later checks.
+          {
+            echo "latest-version=${LATEST_VERSION}"
+            echo "release-published-at=${RELEASE_PUBLISHED_AT}"
+          } >> "$GITHUB_OUTPUT"
           echo "Latest rclone version: ${LATEST_VERSION}"
+          echo "Latest rclone release published at: ${RELEASE_PUBLISHED_AT}"
 
       - name: Get current rclone version from Docker Hub image
         id: get-current-version
@@ -50,23 +64,52 @@ jobs:
 
           # Run the image and extract rclone version (override entrypoint to avoid backup script)
           CURRENT_VERSION=$(docker run --rm --entrypoint="" nikhilbadyal/bitwarden-backup:latest rclone version | head -n1 | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+')
-          echo "current-version=${CURRENT_VERSION}" >> $GITHUB_OUTPUT
+          echo "current-version=${CURRENT_VERSION}" >> "$GITHUB_OUTPUT"
           echo "Current rclone version in Docker Hub image: ${CURRENT_VERSION}"
 
       - name: Compare versions and set flag
         id: version-check
         run: |
+          # Four full days gives the ecosystem time to identify a bad upstream release before this image consumes it.
+          readonly MIN_RELEASE_AGE_SECONDS=$((4 * 24 * 60 * 60))
+          # A named day length keeps the age reporting tied to the same unit as the safety policy.
+          readonly SECONDS_PER_DAY=$((24 * 60 * 60))
+
+          # The latest/current pair preserves the existing bump decision while the publish timestamp adds the quarantine gate.
           LATEST="${{ steps.get-latest-version.outputs.latest-version }}"
           CURRENT="${{ steps.get-current-version.outputs.current-version }}"
+          RELEASE_PUBLISHED_AT="${{ steps.get-latest-version.outputs.release-published-at }}"
 
-          echo "latest-version=${LATEST}" >> $GITHUB_OUTPUT
-          echo "current-version=${CURRENT}" >> $GITHUB_OUTPUT
+          # Parse the upstream timestamp with GNU date from ubuntu-latest so the gate uses UTC epoch math, not string ordering.
+          if ! RELEASE_PUBLISHED_SECONDS=$(date -u -d "${RELEASE_PUBLISHED_AT}" +%s); then
+            echo "::error::Unable to parse rclone release timestamp: ${RELEASE_PUBLISHED_AT}"
+            exit 1
+          fi
+
+          # Calculate release age at workflow runtime so scheduled reruns naturally unlock once the wait window passes.
+          NOW_SECONDS=$(date -u +%s)
+          RELEASE_AGE_SECONDS=$((NOW_SECONDS - RELEASE_PUBLISHED_SECONDS))
+          RELEASE_AGE_DAYS=$((RELEASE_AGE_SECONDS / SECONDS_PER_DAY))
+
+          # Write the shared outputs once before branching so issue creation receives the same data as the gate.
+          {
+            echo "latest-version=${LATEST}"
+            echo "current-version=${CURRENT}"
+            echo "release-published-at=${RELEASE_PUBLISHED_AT}"
+            echo "release-age-days=${RELEASE_AGE_DAYS}"
+          } >> "$GITHUB_OUTPUT"
 
           if [ "${LATEST}" != "${CURRENT}" ]; then
-            echo "new-version-available=true" >> $GITHUB_OUTPUT
-            echo "🚀 New rclone version available: ${LATEST} (current: ${CURRENT})"
+            if [ "${RELEASE_AGE_SECONDS}" -le "${MIN_RELEASE_AGE_SECONDS}" ]; then
+              # Treat the exact four-day boundary as still waiting so the workflow only bumps after the release is older than four days.
+              echo "new-version-available=false" >> "$GITHUB_OUTPUT"
+              echo "rclone ${LATEST} is newer than ${CURRENT}, but it was published ${RELEASE_AGE_DAYS} full days ago at ${RELEASE_PUBLISHED_AT}. Waiting until it is more than 4 days old before rebuilding."
+            else
+              echo "new-version-available=true" >> "$GITHUB_OUTPUT"
+              echo "🚀 New rclone version available: ${LATEST} (current: ${CURRENT}); release age is ${RELEASE_AGE_DAYS} full days."
+            fi
           else
-            echo "new-version-available=false" >> $GITHUB_OUTPUT
+            echo "new-version-available=false" >> "$GITHUB_OUTPUT"
             echo "✅ Rclone is up to date: ${CURRENT}"
           fi
 
@@ -77,6 +120,9 @@ jobs:
           script: |
             const latestVersion = '${{ steps.version-check.outputs.latest-version }}';
             const currentVersion = '${{ steps.version-check.outputs.current-version }}';
+            // Include the age evidence so maintainers can confirm the supply-chain delay passed before the rebuild.
+            const releasePublishedAt = '${{ steps.version-check.outputs.release-published-at }}';
+            const releaseAgeDays = '${{ steps.version-check.outputs.release-age-days }}';
 
             const issues = await github.rest.issues.listForRepo({
               owner: context.repo.owner,
@@ -96,6 +142,8 @@ jobs:
                 '**Version Information:**',
                 `- **Current version:** ${currentVersion}`,
                 `- **Latest version:** ${latestVersion}`,
+                `- **Published at:** ${releasePublishedAt}`,
+                `- **Release age:** ${releaseAgeDays} full days`,
                 `- **Release URL:** https://github.com/rclone/rclone/releases/tag/${latestVersion}`,
                 '',
                 '**Automated Actions:**',

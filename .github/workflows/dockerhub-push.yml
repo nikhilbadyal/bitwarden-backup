@@ -36,8 +36,106 @@ on:
         required: true
 
 jobs:
-  dockerhub-push:
+  dependency-release-age-check:
     if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    outputs:
+      safe-to-build: ${{ steps.release-age-check.outputs.safe-to-build }}
+    steps:
+      - name: Check tool release ages before image build
+        id: release-age-check
+        run: |
+          set -eo pipefail
+          # Four full days gives the ecosystem time to identify a bad upstream tool release before this image consumes it.
+          readonly MIN_RELEASE_AGE_SECONDS=$((4 * 24 * 60 * 60))
+          # A named day length keeps logs aligned with the same unit as the safety policy.
+          readonly SECONDS_PER_DAY=$((24 * 60 * 60))
+          # The image tag mirrors the downstream build target so this guard compares against the exact image that would be replaced.
+          readonly CURRENT_IMAGE="${{ github.repository }}:latest"
+
+          # Start from allow and only block when this rebuild would consume a newer tool release still inside the safety window.
+          SAFE_TO_BUILD=true
+
+          # Pulling the existing image lets the guard distinguish a real tool bump from an ordinary rebuild of the same versions.
+          if docker pull "${CURRENT_IMAGE}" >/dev/null 2>&1; then
+            CURRENT_IMAGE_AVAILABLE=true
+          else
+            # Missing image data is treated as a potential first install, so fresh upstream releases still need to age out.
+            CURRENT_IMAGE_AVAILABLE=false
+            echo "Existing Docker image ${CURRENT_IMAGE} could not be pulled; release-age checks will assume tool versions may change."
+          fi
+
+          # Extract current tool versions only when the current image is available, because empty versions intentionally mean "would install latest".
+          if [ "${CURRENT_IMAGE_AVAILABLE}" = "true" ]; then
+            CURRENT_RCLONE_VERSION=$(docker run --rm --entrypoint="" "${CURRENT_IMAGE}" rclone version | head -n1 | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' || true)
+            CURRENT_BITWARDEN_CLI_VERSION=$(docker run --rm --entrypoint="" "${CURRENT_IMAGE}" bw --version 2>/dev/null | grep -m1 -oE '[0-9]+\.[0-9]+\.[0-9]+' || true)
+          else
+            CURRENT_RCLONE_VERSION=""
+            CURRENT_BITWARDEN_CLI_VERSION=""
+          fi
+
+          # Read rclone version and publish timestamp from the same release object so the age gate checks the exact candidate build input.
+          RCLONE_API_RESPONSE=$(curl -fsSL "https://api.github.com/repos/rclone/rclone/releases/latest")
+          RCLONE_LATEST_VERSION=$(echo "${RCLONE_API_RESPONSE}" | jq -r '.tag_name')
+          RCLONE_PUBLISHED_AT=$(echo "${RCLONE_API_RESPONSE}" | jq -r '.published_at')
+
+          if [ -z "${RCLONE_LATEST_VERSION}" ] || [ "${RCLONE_LATEST_VERSION}" = "null" ] || [ -z "${RCLONE_PUBLISHED_AT}" ] || [ "${RCLONE_PUBLISHED_AT}" = "null" ]; then
+            echo "::error::Failed to read rclone latest version or publish timestamp."
+            echo "Raw rclone API response: ${RCLONE_API_RESPONSE}" >&2
+            exit 1
+          fi
+
+          # Read Bitwarden CLI version and publish timestamp from one npm metadata response for the same consistency reason.
+          BITWARDEN_PACKAGE_METADATA=$(curl -fsSL https://registry.npmjs.org/@bitwarden/cli)
+          BITWARDEN_LATEST_VERSION=$(echo "${BITWARDEN_PACKAGE_METADATA}" | jq -r '."dist-tags".latest')
+
+          if [ -z "${BITWARDEN_LATEST_VERSION}" ] || [ "${BITWARDEN_LATEST_VERSION}" = "null" ]; then
+            echo "::error::Failed to read latest Bitwarden CLI version from npm metadata."
+            echo "Raw Bitwarden CLI npm response: ${BITWARDEN_PACKAGE_METADATA}" >&2
+            exit 1
+          fi
+
+          BITWARDEN_PUBLISHED_AT=$(echo "${BITWARDEN_PACKAGE_METADATA}" | jq -r --arg version "${BITWARDEN_LATEST_VERSION}" '.time[$version] // empty')
+
+          if [ -z "${BITWARDEN_PUBLISHED_AT}" ]; then
+            echo "::error::Failed to read Bitwarden CLI publish timestamp for version ${BITWARDEN_LATEST_VERSION}."
+            echo "Raw Bitwarden CLI npm response: ${BITWARDEN_PACKAGE_METADATA}" >&2
+            exit 1
+          fi
+
+          # Use one UTC clock sample for both tools so age comparisons are consistent within a single workflow run.
+          NOW_SECONDS=$(date -u +%s)
+          # Convert timestamps to epoch seconds because numeric age checks are clearer and safer than string comparisons.
+          RCLONE_PUBLISHED_SECONDS=$(date -u -d "${RCLONE_PUBLISHED_AT}" +%s)
+          BITWARDEN_PUBLISHED_SECONDS=$(date -u -d "${BITWARDEN_PUBLISHED_AT}" +%s)
+          RCLONE_AGE_SECONDS=$((NOW_SECONDS - RCLONE_PUBLISHED_SECONDS))
+          BITWARDEN_AGE_SECONDS=$((NOW_SECONDS - BITWARDEN_PUBLISHED_SECONDS))
+          RCLONE_AGE_DAYS=$((RCLONE_AGE_SECONDS / SECONDS_PER_DAY))
+          BITWARDEN_AGE_DAYS=$((BITWARDEN_AGE_SECONDS / SECONDS_PER_DAY))
+
+          echo "Current rclone version in image: ${CURRENT_RCLONE_VERSION:-unknown}"
+          echo "Latest rclone release: ${RCLONE_LATEST_VERSION}, published at ${RCLONE_PUBLISHED_AT}, age ${RCLONE_AGE_DAYS} full days"
+          echo "Current Bitwarden CLI version in image: ${CURRENT_BITWARDEN_CLI_VERSION:-unknown}"
+          echo "Latest Bitwarden CLI package: ${BITWARDEN_LATEST_VERSION}, published at ${BITWARDEN_PUBLISHED_AT}, age ${BITWARDEN_AGE_DAYS} full days"
+
+          if [ "${RCLONE_LATEST_VERSION}" != "${CURRENT_RCLONE_VERSION}" ] && [ "${RCLONE_AGE_SECONDS}" -le "${MIN_RELEASE_AGE_SECONDS}" ]; then
+            # The build would install latest rclone, so block only while that candidate release is still inside the safety delay.
+            SAFE_TO_BUILD=false
+            echo "::notice::Skipping Docker build because rclone ${RCLONE_LATEST_VERSION} is not more than 4 days old."
+          fi
+
+          if [ "${BITWARDEN_LATEST_VERSION}" != "${CURRENT_BITWARDEN_CLI_VERSION}" ] && [ "${BITWARDEN_AGE_SECONDS}" -le "${MIN_RELEASE_AGE_SECONDS}" ]; then
+            # The build would install latest Bitwarden CLI, so block only while that candidate package is still inside the safety delay.
+            SAFE_TO_BUILD=false
+            echo "::notice::Skipping Docker build because Bitwarden CLI ${BITWARDEN_LATEST_VERSION} is not more than 4 days old."
+          fi
+
+          # This output is the single gate for the reusable Docker push job below.
+          echo "safe-to-build=${SAFE_TO_BUILD}" >> "$GITHUB_OUTPUT"
+
+  dockerhub-push:
+    needs: dependency-release-age-check
+    if: (github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success') && needs.dependency-release-age-check.outputs.safe-to-build == 'true'
     uses: nikhilbadyal/ghactions/.github/workflows/dockerhub-push.yml@main
     with:
       IMAGE_TAG: ${{ github.repository }}${{ inputs.image-suffix || '' }}:latest${{ inputs.additional-tags && format(',{0}', inputs.additional-tags) || '' }}
