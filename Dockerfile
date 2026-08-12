@@ -12,8 +12,8 @@ RUN apt-get update && apt-get upgrade -y && \
         python3-pip \
         unzip \
         wget && \
-    # Install Node.js LTS (auto-detects arch, supports ARM/x86)
-    curl -fsSL https://deb.nodesource.com/setup_lts.x | bash - && \
+    # Install Node.js 22.x (Bitwarden CLI 2026.7.0 specifies node ~22 in npm engines metadata; Node 24 causes npm to fall back to older CLI versions)
+    curl -fsSL https://deb.nodesource.com/setup_22.x | bash - && \
     apt-get install -y nodejs && \
     # Install Apprise using pip (with --break-system-packages for Debian 12)
     pip3 install apprise --break-system-packages && \
