@@ -11,6 +11,7 @@ ignore = [
     "BLE001", # Audit URL open for permitted schemes.
     "D104", # Audit URL open for permitted schemes.
     "D100", # Audit URL open for permitted schemes.
+    "CPY001"
 ]
 [tool.ruff.lint.pydocstyle]
 convention = "numpy"
