@@ -76,7 +76,9 @@ def pascal_to_snake_dict(item: dict[str, Any]) -> dict[str, Any]:
 
 @router.get("")
 @router.get("/", include_in_schema=False)
-def list_backups( #noqa: C901,PLR0912,PLR0913
+# Suppress C901 (cyclomatic complexity), PLR0912 (too many branches), PLR0913 (too many arguments),
+# and PLR0917 (too many positional arguments) because FastAPI endpoint parameters represent query parameters.
+def list_backups(  # noqa: C901,PLR0912,PLR0913,PLR0917
     remote: str,
     _: Annotated[bool, Depends(get_token)],
     search: str | None = None,
